@@ -9,6 +9,24 @@ from pathlib import Path
 import pytest
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    ensure_pytest_basetemp_parent(config)
+
+
+def ensure_pytest_basetemp_parent(config: pytest.Config, *, workspace: Path | None = None) -> None:
+    root = workspace.resolve() if workspace is not None else Path(__file__).resolve().parents[1]
+    expected = (root / "test_use" / "pytest_tmp").resolve()
+    configured = config.getoption("basetemp")
+    if configured is None:
+        return
+    candidate = Path(str(configured)).expanduser()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    if candidate.resolve() != expected:
+        return
+    expected.parent.mkdir(parents=True, exist_ok=True)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def isolate_local_attestation_trust() -> Iterator[None]:
     workspace = Path(__file__).resolve().parents[1]

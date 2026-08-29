@@ -5,6 +5,7 @@ import tomllib
 
 import pytest
 
+from conftest import ensure_pytest_basetemp_parent
 from vivado_agent_mcp.vivado.env import (
     _parse_vivado_version,
     capture_server_vivado_identity,
@@ -31,6 +32,31 @@ def test_pytest_basetemp_does_not_own_the_entire_test_use_evidence_root() -> Non
 
     assert "--basetemp=test_use/pytest_tmp" in addopts
     assert "--basetemp=test_use" not in addopts
+
+
+def test_pytest_basetemp_parent_is_created_only_for_the_workspace_test_root(tmp_path: Path) -> None:
+    class FakeConfig:
+        def __init__(self, basetemp: str) -> None:
+            self.basetemp = basetemp
+
+        def getoption(self, name: str) -> str:
+            assert name == "basetemp"
+            return self.basetemp
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    ensure_pytest_basetemp_parent(
+        FakeConfig("test_use/pytest_tmp"),  # type: ignore[arg-type]
+        workspace=workspace,
+    )
+    assert (workspace / "test_use").is_dir()
+
+    unrelated = tmp_path / "unrelated"
+    ensure_pytest_basetemp_parent(
+        FakeConfig(str(unrelated / "pytest_tmp")),  # type: ignore[arg-type]
+        workspace=workspace,
+    )
+    assert not unrelated.exists()
 
 
 def test_pytest_tmp_path_stays_under_test_use(tmp_path: Path) -> None:
