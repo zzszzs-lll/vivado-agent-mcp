@@ -6,7 +6,14 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ..registry import TOOL_REGISTRY, hardware_tool_tiers
+from ..registry import (
+    CAPABILITY_SPEC_VERSION,
+    TOOL_REGISTRY,
+    capability_domain_tool_names,
+    capability_manifest,
+    capability_workflow_sequence,
+    hardware_tool_tiers,
+)
 from .audit import REQUIRED_DIAGNOSTIC_CATEGORIES, SINGLETON_DIAGNOSTIC_CATEGORIES
 from .agent_actions import dedupe_next_actions, next_action
 from .evidence_attestation import verify_diagnostic_manifest_attestation
@@ -22,49 +29,31 @@ MAX_DIAGNOSTIC_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_DIAGNOSTIC_MANIFEST_BYTES = 8 * 1024 * 1024
 
 
-TOOL_GROUPS: tuple[dict[str, Any], ...] = (
+_TOOL_GROUP_METADATA: tuple[dict[str, Any], ...] = (
     {
         "id": "agent_guidance",
         "label": "Agent guidance entrypoints",
         "purpose": "Expose the tool catalog, standard recipes, scenario benchmarks, and handoff validation entrypoints.",
-        "tools": ["get_tool_catalog", "get_agent_workflows", "get_agent_scenarios", "get_workflow_trace_status"],
     },
     {
         "id": "session",
         "label": "Vivado session",
         "purpose": "Start, stop, and inspect the visible Vivado GUI/TCP Tcl session.",
-        "tools": ["detect_vivado_environment", "start_session", "session_status", "stop_session"],
     },
     {
         "id": "runtime_lightweight",
         "label": "Runtime lightweight cleanup",
         "purpose": "Inspect and explicitly clean temporary MCP/Vivado runtime cache without touching project-local vmcp_* deliverables.",
-        "tools": ["get_runtime_cache_status", "clean_runtime_cache"],
     },
     {
         "id": "project",
         "label": "Project and filesets",
         "purpose": "Create/open projects and manage sources_1, constrs_1, and sim_1 references.",
-        "tools": [
-            "create_project",
-            "repair_project_setup",
-            "open_project",
-            "close_project",
-            "get_project_info",
-            "get_project_state",
-            "add_project_files",
-            "remove_project_files",
-            "list_fileset_files",
-            "set_project_top",
-            "set_project_part",
-            "update_project_compile_order",
-        ],
     },
     {
         "id": "simulation",
         "label": "Behavioral simulation",
         "purpose": "Configure sim_1, run Vivado XSIM, and parse logs plus waveform artifacts.",
-        "tools": ["configure_simulation", "run_behavioral_simulation", "get_simulation_result"],
     },
     {
         "id": "ip",
@@ -72,7 +61,6 @@ TOOL_GROUPS: tuple[dict[str, Any], ...] = (
         "purpose": "Retain IP maintenance primitives for future compatibility work; managed simulation, run, report, signoff, audit, and diagnostic execution reject IP/XCI design inputs.",
         "execution_status": "BLOCKED_UNSUPPORTED_COMPOSITE_INPUT",
         "execution_boundary": "Do not route an Agent into managed design execution when IP/XCI inputs are present.",
-        "tools": ["create_ip", "configure_ip", "generate_ip_targets", "export_ip_user_files", "get_ip_status", "upgrade_ip"],
     },
     {
         "id": "block_design",
@@ -80,115 +68,44 @@ TOOL_GROUPS: tuple[dict[str, Any], ...] = (
         "purpose": "Retain Block Design maintenance primitives for future compatibility work; managed simulation, run, report, signoff, audit, and diagnostic execution reject BD design inputs.",
         "execution_status": "BLOCKED_UNSUPPORTED_COMPOSITE_INPUT",
         "execution_boundary": "Do not route an Agent into managed design execution when Block Design inputs are present.",
-        "tools": [
-            "create_block_design",
-            "open_block_design",
-            "add_bd_ip_cell",
-            "create_bd_port",
-            "connect_bd_net",
-            "connect_bd_intf_net",
-            "validate_block_design",
-            "generate_block_design_wrapper",
-        ],
     },
     {
         "id": "runs",
         "label": "Synthesis, implementation, and bitstream",
         "purpose": "Launch runs without blocking, poll progress, configure/reset runs, and collect build outputs.",
-        "tools": [
-            "run_synthesis",
-            "run_implementation",
-            "generate_bitstream",
-            "get_run_progress",
-            "diagnose_run_failure",
-            "get_run_configuration",
-            "configure_run",
-            "reset_runs",
-            "clean_run_outputs",
-            "collect_build_artifacts",
-            "get_artifact_manifest",
-        ],
     },
     {
         "id": "constraints",
         "label": "Constraints and timing readiness",
         "purpose": "Inspect and diagnose XDC, timing constraints, clocks, and closure blockers.",
-        "tools": [
-            "create_managed_xdc",
-            "get_constraints_summary",
-            "check_timing_constraints",
-            "get_clock_summary",
-            "get_timing_paths",
-            "analyze_timing_closure",
-            "check_bitstream_readiness",
-        ],
     },
     {
         "id": "reports",
         "label": "Reports",
         "purpose": "Parse implementation, timing, quality, CDC, clock interaction, power, and message reports.",
-        "tools": [
-            "get_timing_summary",
-            "get_utilization_report",
-            "get_drc_report",
-            "get_methodology_report",
-            "get_qor_summary",
-            "get_cdc_report",
-            "get_clock_interaction_report",
-            "get_power_report",
-            "get_messages",
-            "get_critical_warnings",
-            "collect_report_bundle",
-        ],
     },
     {
         "id": "diagnostics",
         "label": "Signoff, audit, diagnostics, and replay",
         "purpose": "Create handoff-grade project health evidence without claiming real-board validation.",
-        "tools": [
-            "analyze_sources",
-            "check_syntax",
-            "get_compile_order",
-            "run_elaboration",
-            "get_elaboration_result",
-            "get_design_hierarchy",
-            "run_pre_hw_signoff",
-            "run_project_audit",
-            "list_signoff_waivers",
-            "create_signoff_waiver",
-            "remove_signoff_waiver",
-            "collect_diagnostic_bundle",
-            "export_project_replay_script",
-            "validate_diagnostic_bundle",
-        ],
     },
     {
         "id": "hardware_boundary",
         "label": "Hardware boundary",
         "purpose": "Expose explicit hardware interfaces, path checks, and no-board negative results only.",
-        "tools": [
-            "detect_hardware_environment",
-            "open_hardware_manager",
-            "close_hardware_manager",
-            "connect_hw_server",
-            "disconnect_hw_server",
-            "list_hw_targets",
-            "open_hw_target",
-            "close_hw_target",
-            "list_hw_devices",
-            "select_hw_device",
-            "program_hw_device",
-            "program_from_artifact_manifest",
-            "get_hw_device_status",
-            "get_hardware_messages",
-        ],
     },
     {
         "id": "custom_tcl",
         "label": "Tcl policy dry-run",
         "purpose": "Render and classify raw or template Tcl without executing it; uncovered operations require a dedicated typed tool.",
-        "tools": ["run_tcl", "safe_tcl"],
     },
+)
+TOOL_GROUPS: tuple[dict[str, Any], ...] = tuple(
+    {
+        **group,
+        "tools": list(capability_domain_tool_names(str(group["id"]))),
+    }
+    for group in _TOOL_GROUP_METADATA
 )
 
 
@@ -197,27 +114,7 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
         "id": "new_project_to_bitstream",
         "label": "New Project Mode project to bitstream",
         "required_inputs": ["project_name", "project_dir", "part", "rtl_files", "top", "clock_and_pin_constraints", "testbench_or_sim_plan", "authorized_source_editing_capability"],
-        "tool_sequence": [
-            "start_session",
-            "create_project",
-            "repair_project_setup",
-            "configure_simulation",
-            "check_syntax",
-            "get_compile_order",
-            "run_behavioral_simulation",
-            "run_synthesis",
-            "get_run_progress",
-            "run_implementation",
-            "get_run_progress",
-            "generate_bitstream",
-            "get_run_progress",
-            "collect_build_artifacts",
-            "collect_report_bundle",
-            "run_pre_hw_signoff",
-            "run_project_audit",
-            "collect_diagnostic_bundle",
-            "validate_diagnostic_bundle",
-        ],
+        "tool_sequence": list(capability_workflow_sequence("new_project_to_bitstream")),
         "completion_gate": "Agent handoff is complete only after bitstream artifacts, report bundle, pre-hardware signoff, project audit, diagnostic bundle, and validate_diagnostic_bundle are all available.",
         "stop_conditions": ["run_pre_hw_signoff returns BLOCK", "run_project_audit returns BLOCK", "timing/DRC/methodology readiness blocks bitstream handoff"],
     },
@@ -225,15 +122,7 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
         "id": "existing_project_audit",
         "label": "Existing project inspection and evidence handoff",
         "required_inputs": ["project_path", "diagnostic_manifest_path"],
-        "tool_sequence": [
-            "start_session",
-            "open_project",
-            "get_project_state",
-            "list_fileset_files",
-            "validate_diagnostic_bundle",
-            "get_workflow_trace_status",
-            "stop_session",
-        ],
+        "tool_sequence": list(capability_workflow_sequence("existing_project_audit")),
         "completion_gate": "Existing project inspection is complete only after the receiver records project/fileset state and validates producer evidence without executing or mutating the original project.",
         "stop_conditions": [
             "diagnostic bundle health is BLOCK",
@@ -245,7 +134,7 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
         "id": "simulation_failure_repair",
         "label": "Simulation failure diagnosis loop",
         "required_inputs": ["open_project", "simset", "testbench_top"],
-        "tool_sequence": ["get_simulation_result", "analyze_sources", "check_syntax", "get_compile_order", "run_behavioral_simulation"],
+        "tool_sequence": list(capability_workflow_sequence("simulation_failure_repair")),
         "completion_gate": "Simulation repair is complete when the latest bounded run_behavioral_simulation invocation reports completed.",
         "stop_conditions": ["self-checking testbench still reports FAIL", "XSIM log still contains ERROR"],
     },
@@ -253,7 +142,7 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
         "id": "timing_failure_repair",
         "label": "Timing and constraint repair loop",
         "required_inputs": ["open_project", "clock_requirements", "pin_constraints", "run_name"],
-        "tool_sequence": ["diagnose_run_failure", "get_constraints_summary", "check_timing_constraints", "get_timing_summary", "get_timing_paths", "analyze_timing_closure", "check_bitstream_readiness"],
+        "tool_sequence": list(capability_workflow_sequence("timing_failure_repair")),
         "completion_gate": "Timing repair is complete when check_bitstream_readiness is READY or only documented warnings remain.",
         "stop_conditions": ["WNS/TNS remains failing", "check_timing reports unconstrained clocks/endpoints", "DRC or methodology errors remain"],
     },
@@ -261,14 +150,7 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
         "id": "diagnostic_bundle_handoff",
         "label": "Diagnostic bundle handoff",
         "required_inputs": ["open_project", "run_name"],
-        "tool_sequence": [
-            "run_project_audit",
-            "collect_diagnostic_bundle",
-            "validate_diagnostic_bundle",
-            "stop_session",
-            "get_runtime_cache_status",
-            "clean_runtime_cache",
-        ],
+        "tool_sequence": list(capability_workflow_sequence("diagnostic_bundle_handoff")),
         "completion_gate": "Project-local diagnostic review handoff is complete when validate_diagnostic_bundle returns READY or an explicitly reviewed WARN; portable cross-machine handoff is not supported.",
         "stop_conditions": ["validate_diagnostic_bundle returns BLOCK", "hardware_validation is missing or not NOT_VALIDATED"],
     },
@@ -276,7 +158,7 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
         "id": "project_closeout_cleanup",
         "label": "Project closeout runtime cleanup",
         "required_inputs": [],
-        "tool_sequence": ["stop_session", "get_runtime_cache_status", "clean_runtime_cache"],
+        "tool_sequence": list(capability_workflow_sequence("project_closeout_cleanup")),
         "completion_gate": "Cleanup is complete after stop_session and a reviewed clean_runtime_cache dry-run, with real deletion only on explicit confirmation.",
         "stop_conditions": [
             "clean_runtime_cache dry-run returns BLOCK",
@@ -768,11 +650,68 @@ WORKFLOW_STEP_DETAILS: dict[str, dict[str, Any]] = {
 }
 
 
-def build_tool_catalog(tool_names: list[str]) -> dict[str, Any]:
+def _catalog_capability_metadata(name: str, *, detail: str) -> dict[str, Any]:
+    spec = TOOL_REGISTRY[name]
+    metadata: dict[str, Any] = {"risk": spec.risk}
+    if detail != "full":
+        annotations = {
+            key: value
+            for key, value in {
+                "read_only": spec.read_only,
+                "destructive": spec.destructive,
+            }.items()
+            if value
+        }
+        if annotations:
+            metadata["annotations"] = annotations
+        if spec.hardware:
+            metadata["hardware_validation_status"] = "NOT_VALIDATED"
+        return metadata
+    metadata.update(
+        {
+            "domain": spec.domain,
+            "duration_class": spec.duration_class,
+            "annotations": {
+                "read_only": spec.read_only,
+                "destructive": spec.destructive,
+                "idempotent": spec.idempotent,
+                "open_world": spec.open_world,
+            },
+            "hardware_validation_status": "NOT_VALIDATED" if spec.hardware else "NOT_APPLICABLE",
+        }
+    )
+    metadata.update(
+        {
+            "profiles": sorted(spec.profiles),
+            "workflow_tags": list(spec.workflow_tags),
+            "required_session_state": spec.required_session_state,
+            "required_project_state": spec.required_project_state,
+            "mutation": spec.mutation,
+            "hardware": spec.hardware,
+            "task_eligible": spec.task_eligible,
+            "dispatch_lane": spec.dispatch_lane,
+            "supported_vivado_versions": list(spec.supported_vivado_versions),
+            "qualified_vivado_versions": list(spec.qualified_vivado_versions),
+            "execution_input_policy": spec.execution_input_policy,
+        }
+    )
+    if len(spec.evidence_contract) > 1:
+        metadata["evidence_contract"] = list(spec.evidence_contract)
+    if spec.artifact_contract != ("none",):
+        metadata["artifact_contract"] = list(spec.artifact_contract)
+    return metadata
+
+
+def build_tool_catalog(tool_names: list[str], *, detail: str = "compact") -> dict[str, Any]:
     available = set(tool_names)
+    selected_detail = detail if detail in {"compact", "full"} else "compact"
     groups = [_available_group(group, available) for group in TOOL_GROUPS]
     return {
         "version": 1,
+        "capability_spec_version": CAPABILITY_SPEC_VERSION,
+        "capability_digest": capability_manifest(available)["capability_digest"],
+        "capability_detail": selected_detail,
+        "full_capability_metadata_available": True,
         "tool_count": len(available),
         "groups": groups,
         "recommended_entrypoints": {
@@ -785,6 +724,7 @@ def build_tool_catalog(tool_names: list[str]) -> dict[str, Any]:
         "support_status": {
             "maturity": "ALPHA",
             "validated_scope": "Windows, Python 3.11/3.12, Vivado 2021.2, trusted pure RTL/XDC Project Mode",
+            "task_extension_status": "NOT_AVAILABLE_ON_CURRENT_MCP_SDK_V1",
             "hardware_validation_status": "NOT_VALIDATED",
         },
         "managed_execution_boundary": {
@@ -813,7 +753,7 @@ def build_tool_catalog(tool_names: list[str]) -> dict[str, Any]:
             "tool_tiers": hardware_tool_tiers(),
         },
         "tool_metadata": {
-            name: {"risk": TOOL_REGISTRY[name].risk}
+            name: _catalog_capability_metadata(name, detail=selected_detail)
             for name in sorted(available)
         },
     }
