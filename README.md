@@ -60,6 +60,7 @@ GitHub Actions 的绿色状态证明 Python、MCP 契约和发行物安装链路
 
 ## 安全边界
 
+- MCP `list_tools` 定义、core/advanced/all profile、risk、MCP annotations、Agent catalog 和 workflow tags 由同一 `CapabilitySpec` 投影生成；`selftest` 会检查公开 annotations 是否与该契约一致。
 - 默认 `core` profile 只暴露标准 workflow、诊断和恢复工具。
 - 公共 `run_tcl` / `safe_tcl` 不能执行任意 Tcl，只保留 dry-run 分类。
 - 已有工程通过 Vivado 原生 `open_project -read_only` 与 MCP policy 双重进入 inspection-only 模式；需要执行时，Agent 必须先采集三个 fileset 的受支持逐文件语义，再在独立路径创建并核对 MCP 管理的工作工程。
@@ -163,6 +164,8 @@ Agent 开始 Vivado 工作时应遵循以下顺序：
 4. 遇到 `BLOCK`、`stop_required=true` 或安全门禁时停止，不使用 Shell 绕过。
 5. bitstream 生成只代表构建完成；完整 Agent handoff 还需要 artifact、report、signoff、audit 和 diagnostic evidence。
 6. 任何无板卡结果都必须保持 `hardware_validation.status=NOT_VALIDATED`。
+
+`get_tool_catalog` 默认返回适合 Agent 路由的紧凑 CapabilitySpec 投影；需要审计 profile、workflow tags、状态前置条件和 dispatch lane 时，传入 `{"detail":"full"}`。
 
 推荐从 `get_agent_workflows` 选择标准路径：新工程先完成语法与有限时长仿真，再异步启动 synthesis/implementation/bitstream 并轮询；已有工程默认只读检查；bitstream 后继续收集 artifact、report、signoff、audit 和 diagnostic bundle 才算完整 handoff。
 

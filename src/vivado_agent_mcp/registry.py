@@ -1,22 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
-from dataclasses import dataclass
 from typing import Any
 
 import mcp.types as types
 
-from .vivado.runs import ALLOWED_RUN_PROPERTIES
-
-
-@dataclass(frozen=True)
-class ToolSpec:
-    name: str
-    handler: str
-    description: str
-    input_schema: dict[str, Any]
-    risk: str = "normal"
+from .capability_spec import CapabilitySpec
+from .result import RESPONSE_SCHEMA_VERSION
+from .vivado.runs import ALLOWED_RUN_PROPERTIES, SUPPORTED_VIVADO_VERSION
 
 
 def _schema(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
@@ -92,8 +86,14 @@ def _output_schema() -> dict[str, Any]:
     }
 
 
-TOOL_DEFS = [
-    types.Tool(name="get_tool_catalog", description="Return the Agent-facing Vivado MCP capability matrix and tool groups.", inputSchema=_schema({}), outputSchema=_output_schema()),
+# Private schema seeds are normalized once; every runtime consumer uses CAPABILITY_SPECS.
+_CAPABILITY_SCHEMA_SEEDS = [
+    types.Tool(
+        name="get_tool_catalog",
+        description="Return the Agent-facing Vivado MCP capability matrix and tool groups, with optional full CapabilitySpec metadata.",
+        inputSchema=_schema({"detail": {"type": "string", "enum": ["compact", "full"]}}),
+        outputSchema=_output_schema(),
+    ),
     types.Tool(name="get_agent_workflows", description="Return standard Agent workflow recipes for no-board Project Mode PL development.", inputSchema=_schema({}), outputSchema=_output_schema()),
     types.Tool(name="get_agent_scenarios", description="Return reusable Subagent validation scenarios for Agent-facing Vivado MCP acceptance.", inputSchema=_schema({"scenario_id": {"type": "string"}}), outputSchema=_output_schema()),
     types.Tool(name="get_workflow_trace_status", description="Return the current Agent workflow transcript status and recoverable handoff pointers.", inputSchema=_schema({}), outputSchema=_output_schema()),
@@ -616,15 +616,199 @@ TOOL_DEFS = [
     types.Tool(name="get_critical_warnings", description="Return ERROR and CRITICAL WARNING messages.", inputSchema=_schema({"timeout_s": {"type": "integer"}}), outputSchema=_output_schema()),
     types.Tool(name="check_bitstream_readiness", description="Aggregate timing, DRC, and critical messages into READY/WARN/BLOCK.", inputSchema=_schema({"timeout_s": {"type": "integer"}}), outputSchema=_output_schema()),
 ]
-HARDWARE_SAFE_DETECTOR_TOOLS = {
+
+CAPABILITY_DOMAIN_TOOL_NAMES: dict[str, tuple[str, ...]] = {
+    "agent_guidance": (
+        "get_tool_catalog",
+        "get_agent_workflows",
+        "get_agent_scenarios",
+        "get_workflow_trace_status",
+    ),
+    "session": (
+        "detect_vivado_environment",
+        "start_session",
+        "session_status",
+        "stop_session",
+    ),
+    "runtime_lightweight": ("get_runtime_cache_status", "clean_runtime_cache"),
+    "project": (
+        "create_project",
+        "repair_project_setup",
+        "open_project",
+        "close_project",
+        "get_project_info",
+        "get_project_state",
+        "add_project_files",
+        "remove_project_files",
+        "list_fileset_files",
+        "set_project_top",
+        "set_project_part",
+        "update_project_compile_order",
+    ),
+    "simulation": (
+        "configure_simulation",
+        "run_behavioral_simulation",
+        "get_simulation_result",
+    ),
+    "ip": (
+        "create_ip",
+        "configure_ip",
+        "generate_ip_targets",
+        "export_ip_user_files",
+        "get_ip_status",
+        "upgrade_ip",
+    ),
+    "block_design": (
+        "create_block_design",
+        "open_block_design",
+        "add_bd_ip_cell",
+        "create_bd_port",
+        "connect_bd_net",
+        "connect_bd_intf_net",
+        "validate_block_design",
+        "generate_block_design_wrapper",
+    ),
+    "runs": (
+        "run_synthesis",
+        "run_implementation",
+        "generate_bitstream",
+        "get_run_progress",
+        "diagnose_run_failure",
+        "get_run_configuration",
+        "configure_run",
+        "reset_runs",
+        "clean_run_outputs",
+        "collect_build_artifacts",
+        "get_artifact_manifest",
+    ),
+    "constraints": (
+        "create_managed_xdc",
+        "get_constraints_summary",
+        "check_timing_constraints",
+        "get_clock_summary",
+        "get_timing_paths",
+        "analyze_timing_closure",
+        "check_bitstream_readiness",
+    ),
+    "reports": (
+        "get_timing_summary",
+        "get_utilization_report",
+        "get_drc_report",
+        "get_methodology_report",
+        "get_qor_summary",
+        "get_cdc_report",
+        "get_clock_interaction_report",
+        "get_power_report",
+        "get_messages",
+        "get_critical_warnings",
+        "collect_report_bundle",
+    ),
+    "diagnostics": (
+        "analyze_sources",
+        "check_syntax",
+        "get_compile_order",
+        "run_elaboration",
+        "get_elaboration_result",
+        "get_design_hierarchy",
+        "run_pre_hw_signoff",
+        "run_project_audit",
+        "list_signoff_waivers",
+        "create_signoff_waiver",
+        "remove_signoff_waiver",
+        "collect_diagnostic_bundle",
+        "export_project_replay_script",
+        "validate_diagnostic_bundle",
+    ),
+    "hardware_boundary": (
+        "detect_hardware_environment",
+        "open_hardware_manager",
+        "close_hardware_manager",
+        "connect_hw_server",
+        "disconnect_hw_server",
+        "list_hw_targets",
+        "open_hw_target",
+        "close_hw_target",
+        "list_hw_devices",
+        "select_hw_device",
+        "program_hw_device",
+        "program_from_artifact_manifest",
+        "get_hw_device_status",
+        "get_hardware_messages",
+    ),
+    "custom_tcl": ("run_tcl", "safe_tcl"),
+}
+
+CAPABILITY_WORKFLOW_SEQUENCES: dict[str, tuple[str, ...]] = {
+    "new_project_to_bitstream": (
+        "start_session",
+        "create_project",
+        "repair_project_setup",
+        "configure_simulation",
+        "check_syntax",
+        "get_compile_order",
+        "run_behavioral_simulation",
+        "run_synthesis",
+        "get_run_progress",
+        "run_implementation",
+        "get_run_progress",
+        "generate_bitstream",
+        "get_run_progress",
+        "collect_build_artifacts",
+        "collect_report_bundle",
+        "run_pre_hw_signoff",
+        "run_project_audit",
+        "collect_diagnostic_bundle",
+        "validate_diagnostic_bundle",
+    ),
+    "existing_project_audit": (
+        "start_session",
+        "open_project",
+        "get_project_state",
+        "list_fileset_files",
+        "validate_diagnostic_bundle",
+        "get_workflow_trace_status",
+        "stop_session",
+    ),
+    "simulation_failure_repair": (
+        "get_simulation_result",
+        "analyze_sources",
+        "check_syntax",
+        "get_compile_order",
+        "run_behavioral_simulation",
+    ),
+    "timing_failure_repair": (
+        "diagnose_run_failure",
+        "get_constraints_summary",
+        "check_timing_constraints",
+        "get_timing_summary",
+        "get_timing_paths",
+        "analyze_timing_closure",
+        "check_bitstream_readiness",
+    ),
+    "diagnostic_bundle_handoff": (
+        "run_project_audit",
+        "collect_diagnostic_bundle",
+        "validate_diagnostic_bundle",
+        "stop_session",
+        "get_runtime_cache_status",
+        "clean_runtime_cache",
+    ),
+    "project_closeout_cleanup": (
+        "stop_session",
+        "get_runtime_cache_status",
+        "clean_runtime_cache",
+    ),
+}
+
+_HARDWARE_SAFE_DETECTOR_TOOLS = {
     "detect_hardware_environment",
 }
 
-HARDWARE_LOG_READONLY_TOOLS = {
+_HARDWARE_LOG_READONLY_TOOLS = {
     "get_hardware_messages",
 }
 
-HARDWARE_DISABLED_BY_DEFAULT_TOOLS = {
+_HARDWARE_DISABLED_BY_DEFAULT_TOOLS = {
     "open_hardware_manager",
     "close_hardware_manager",
     "connect_hw_server",
@@ -637,14 +821,14 @@ HARDWARE_DISABLED_BY_DEFAULT_TOOLS = {
     "get_hw_device_status",
 }
 
-HARDWARE_TOOLS = (
-    HARDWARE_SAFE_DETECTOR_TOOLS
-    | HARDWARE_LOG_READONLY_TOOLS
-    | HARDWARE_DISABLED_BY_DEFAULT_TOOLS
+_HARDWARE_TOOLS = (
+    _HARDWARE_SAFE_DETECTOR_TOOLS
+    | _HARDWARE_LOG_READONLY_TOOLS
+    | _HARDWARE_DISABLED_BY_DEFAULT_TOOLS
 )
 
-HARDWARE_DESTRUCTIVE_TOOLS = {"program_hw_device", "program_from_artifact_manifest"}
-IMMEDIATE_PROJECT_MUTATION_TOOLS = {
+_HARDWARE_DESTRUCTIVE_TOOLS = {"program_hw_device", "program_from_artifact_manifest"}
+_IMMEDIATE_PROJECT_MUTATION_TOOLS = {
     "add_bd_ip_cell",
     "add_project_files",
     "configure_ip",
@@ -669,7 +853,7 @@ IMMEDIATE_PROJECT_MUTATION_TOOLS = {
     "update_project_compile_order",
     "upgrade_ip",
 }
-UNATTESTED_COMPOSITE_EXECUTION_TOOLS = {
+_UNATTESTED_COMPOSITE_EXECUTION_TOOLS = {
     "add_bd_ip_cell",
     "configure_ip",
     "create_ip",
@@ -680,7 +864,7 @@ UNATTESTED_COMPOSITE_EXECUTION_TOOLS = {
     "upgrade_ip",
     "validate_block_design",
 }
-EXISTING_PROJECT_EXECUTION_TOOLS = {
+_EXISTING_PROJECT_EXECUTION_TOOLS = {
     "analyze_timing_closure",
     "check_bitstream_readiness",
     "check_timing_constraints",
@@ -710,7 +894,7 @@ EXISTING_PROJECT_EXECUTION_TOOLS = {
 }
 TOOL_PROFILE_ENV = "VIVADO_AGENT_MCP_TOOL_PROFILE"
 DEFAULT_TOOL_PROFILE = "core"
-CORE_TOOL_NAMES = frozenset(
+_CORE_TOOL_NAMES = frozenset(
     {
         "analyze_sources",
         "analyze_timing_closure",
@@ -757,6 +941,440 @@ CORE_TOOL_NAMES = frozenset(
 )
 
 
+_ADVANCED_ONLY_TOOL_NAMES = {
+    "run_tcl",
+    "safe_tcl",
+    "create_ip",
+    "configure_ip",
+    "generate_ip_targets",
+    "get_ip_status",
+    "upgrade_ip",
+    "export_ip_user_files",
+    "create_block_design",
+    "open_block_design",
+    "add_bd_ip_cell",
+    "create_bd_port",
+    "connect_bd_net",
+    "connect_bd_intf_net",
+    "validate_block_design",
+    "generate_block_design_wrapper",
+    "get_project_info",
+    "add_project_files",
+    "remove_project_files",
+    "set_project_top",
+    "set_project_part",
+    "run_elaboration",
+    "get_elaboration_result",
+    "get_design_hierarchy",
+    "get_run_configuration",
+    "configure_run",
+    "reset_runs",
+    "get_artifact_manifest",
+    "list_signoff_waivers",
+    "create_signoff_waiver",
+    "remove_signoff_waiver",
+    "export_project_replay_script",
+    "get_utilization_report",
+    "get_drc_report",
+    "get_clock_summary",
+    "get_methodology_report",
+    "get_qor_summary",
+    "get_cdc_report",
+    "get_clock_interaction_report",
+    "get_power_report",
+    "create_managed_xdc",
+    "get_messages",
+    "get_critical_warnings",
+}
+_NORMAL_TOOL_NAMES = {
+    "get_tool_catalog",
+    "get_agent_workflows",
+    "get_agent_scenarios",
+    "get_workflow_trace_status",
+    "detect_vivado_environment",
+    "start_session",
+    "stop_session",
+    "session_status",
+    "get_runtime_cache_status",
+    "get_simulation_result",
+    "get_ip_status",
+    "open_block_design",
+    "validate_block_design",
+    "open_project",
+    "close_project",
+    "get_project_info",
+    "get_project_state",
+    "list_fileset_files",
+    "check_syntax",
+    "get_compile_order",
+    "analyze_sources",
+    "get_elaboration_result",
+    "get_design_hierarchy",
+    "get_run_configuration",
+    "get_artifact_manifest",
+    "list_signoff_waivers",
+    "validate_diagnostic_bundle",
+    "get_run_progress",
+    "diagnose_run_failure",
+    "get_constraints_summary",
+    "get_messages",
+    "get_critical_warnings",
+}
+_TCL_POLICY_DRY_RUN_TOOLS = {"run_tcl", "safe_tcl"}
+_DESTRUCTIVE_DRY_RUN_TOOLS = {"clean_runtime_cache", "reset_runs", "clean_run_outputs"}
+_DESTRUCTIVE_TOOL_NAMES = (
+    _DESTRUCTIVE_DRY_RUN_TOOLS
+    | _HARDWARE_DESTRUCTIVE_TOOLS
+    | {"remove_project_files", "remove_signoff_waiver"}
+)
+_RISK_TOOL_NAMES: dict[str, set[str]] = {
+    "normal": _NORMAL_TOOL_NAMES,
+    "tcl_policy_dry_run": _TCL_POLICY_DRY_RUN_TOOLS,
+    "hardware": _HARDWARE_TOOLS,
+    "hardware_destructive": _HARDWARE_DESTRUCTIVE_TOOLS,
+    "destructive_dry_run": _DESTRUCTIVE_DRY_RUN_TOOLS,
+    "project_mutation_immediate": _IMMEDIATE_PROJECT_MUTATION_TOOLS,
+    "project_execution": _EXISTING_PROJECT_EXECUTION_TOOLS - _DESTRUCTIVE_DRY_RUN_TOOLS,
+}
+_EXPOSURE_TOOL_NAMES: dict[str, set[str] | frozenset[str]] = {
+    "core": _CORE_TOOL_NAMES,
+    "advanced": _ADVANCED_ONLY_TOOL_NAMES,
+    "hardware": _HARDWARE_TOOLS | _HARDWARE_DESTRUCTIVE_TOOLS,
+}
+
+
+CAPABILITY_SPEC_VERSION = 1
+
+_LOCAL_CONTROL_TOOL_NAMES = {
+    "get_tool_catalog",
+    "get_agent_workflows",
+    "get_agent_scenarios",
+    "get_workflow_trace_status",
+    "session_status",
+}
+_READ_ONLY_TOOL_NAMES = {
+    "get_tool_catalog",
+    "get_agent_workflows",
+    "get_agent_scenarios",
+    "get_workflow_trace_status",
+    "session_status",
+    "get_runtime_cache_status",
+    "detect_hardware_environment",
+    "list_hw_targets",
+    "list_hw_devices",
+    "get_hw_device_status",
+    "get_hardware_messages",
+    "run_tcl",
+    "safe_tcl",
+    "get_simulation_result",
+    "get_ip_status",
+    "get_project_info",
+    "get_project_state",
+    "list_fileset_files",
+    "check_syntax",
+    "get_compile_order",
+    "analyze_sources",
+    "get_elaboration_result",
+    "get_design_hierarchy",
+    "get_run_configuration",
+    "get_run_progress",
+    "diagnose_run_failure",
+    "get_artifact_manifest",
+    "list_signoff_waivers",
+    "validate_diagnostic_bundle",
+    "get_constraints_summary",
+    "get_messages",
+    "get_critical_warnings",
+}
+_READ_ONLY_HARDWARE_TOOLS = (
+    _HARDWARE_SAFE_DETECTOR_TOOLS
+    | _HARDWARE_LOG_READONLY_TOOLS
+    | {
+        "list_hw_targets",
+        "list_hw_devices",
+        "get_hw_device_status",
+    }
+)
+_LONG_DURATION_TOOLS = {
+    "run_behavioral_simulation",
+    "run_elaboration",
+    "run_synthesis",
+    "run_implementation",
+    "generate_bitstream",
+    "collect_report_bundle",
+    "run_pre_hw_signoff",
+    "run_project_audit",
+    "collect_diagnostic_bundle",
+}
+_MEDIUM_DURATION_DOMAINS = {
+    "session",
+    "project",
+    "simulation",
+    "ip",
+    "block_design",
+    "runs",
+    "constraints",
+    "reports",
+    "diagnostics",
+    "hardware_boundary",
+}
+_SESSION_FREE_TOOLS = {
+    "get_tool_catalog",
+    "get_agent_workflows",
+    "get_agent_scenarios",
+    "get_workflow_trace_status",
+    "detect_vivado_environment",
+    "detect_hardware_environment",
+    "start_session",
+    "stop_session",
+    "session_status",
+    "get_runtime_cache_status",
+    "clean_runtime_cache",
+    "get_artifact_manifest",
+    "validate_diagnostic_bundle",
+    "run_tcl",
+    "safe_tcl",
+}
+_VIVADO_INDEPENDENT_TOOLS = (
+    set(CAPABILITY_DOMAIN_TOOL_NAMES["agent_guidance"])
+    | set(CAPABILITY_DOMAIN_TOOL_NAMES["runtime_lightweight"])
+    | {"get_artifact_manifest", "validate_diagnostic_bundle"}
+)
+_PROJECT_FREE_TOOLS = {
+    name
+    for domain in ("agent_guidance", "session", "runtime_lightweight", "hardware_boundary", "custom_tcl")
+    for name in CAPABILITY_DOMAIN_TOOL_NAMES[domain]
+} | {"create_project", "open_project"}
+_PROJECT_OR_MANIFEST_TOOLS = {
+    "get_artifact_manifest",
+    "validate_diagnostic_bundle",
+}
+_ARTIFACT_CONTRACTS: dict[str, tuple[str, ...]] = {
+    "generate_bitstream": ("bitstream",),
+    "collect_build_artifacts": ("artifact_manifest", "artifact_sha256"),
+    "get_artifact_manifest": ("artifact_manifest",),
+    "collect_report_bundle": ("report_manifest", "report_sha256"),
+    "collect_diagnostic_bundle": ("diagnostic_manifest", "evidence_sha256"),
+    "validate_diagnostic_bundle": ("diagnostic_manifest", "evidence_sha256"),
+    "export_project_replay_script": ("replay_tcl",),
+}
+
+
+def _domain_for_tool(name: str) -> str:
+    matches = [domain for domain, names in CAPABILITY_DOMAIN_TOOL_NAMES.items() if name in names]
+    if len(matches) != 1:
+        raise ValueError(f"Capability {name!r} must belong to exactly one domain; found {matches!r}")
+    return matches[0]
+
+
+def _workflow_tags_for_tool(name: str) -> tuple[str, ...]:
+    return tuple(workflow_id for workflow_id, names in CAPABILITY_WORKFLOW_SEQUENCES.items() if name in names)
+
+
+def _risk_for_tool(name: str) -> str:
+    matches = [risk for risk, names in _RISK_TOOL_NAMES.items() if name in names]
+    if len(matches) != 1:
+        raise ValueError(f"Capability {name!r} must have exactly one explicit risk class; found {matches!r}")
+    return matches[0]
+
+
+def _hardware_tier_for_tool(name: str) -> str:
+    if name in _HARDWARE_SAFE_DETECTOR_TOOLS:
+        return "hardware_safe_detector"
+    if name in _HARDWARE_LOG_READONLY_TOOLS:
+        return "hardware_log_readonly"
+    if name in _HARDWARE_DISABLED_BY_DEFAULT_TOOLS:
+        return "hardware_disabled_by_default"
+    if name in _HARDWARE_DESTRUCTIVE_TOOLS:
+        return "hardware_destructive"
+    if name in _CORE_TOOL_NAMES or name in _ADVANCED_ONLY_TOOL_NAMES:
+        return "not_hardware"
+    raise ValueError(f"Capability {name!r} has no explicit hardware classification")
+
+
+def _profiles_for_tool(name: str, *, hardware: bool) -> frozenset[str]:
+    matches = [exposure for exposure, names in _EXPOSURE_TOOL_NAMES.items() if name in names]
+    if len(matches) != 1:
+        raise ValueError(f"Capability {name!r} must have exactly one explicit exposure class; found {matches!r}")
+    exposure = matches[0]
+    if hardware != (exposure == "hardware"):
+        raise ValueError(f"Capability {name!r} hardware and exposure metadata disagree")
+    if exposure == "core":
+        return frozenset({"core", "advanced", "all"})
+    if exposure == "advanced":
+        return frozenset({"advanced", "all"})
+    return frozenset({"all"})
+
+
+def _required_session_state(name: str) -> str:
+    if name == "clean_runtime_cache":
+        return "session_stopped_for_mutation"
+    return "none" if name in _SESSION_FREE_TOOLS else "managed_session"
+
+
+def _required_project_state(name: str, risk: str) -> str:
+    if name in _PROJECT_OR_MANIFEST_TOOLS:
+        return "project_or_manifest"
+    if name in _PROJECT_FREE_TOOLS:
+        return "none"
+    if risk in {"project_mutation_immediate", "project_execution", "destructive_dry_run"}:
+        return "managed_project_open"
+    return "project_open"
+
+
+def _build_capability_spec(tool: types.Tool) -> CapabilitySpec:
+    name = tool.name
+    domain = _domain_for_tool(name)
+    risk = _risk_for_tool(name)
+    hardware_tier = _hardware_tier_for_tool(name)
+    hardware = hardware_tier != "not_hardware"
+    read_only = name in _READ_ONLY_TOOL_NAMES or name in _READ_ONLY_HARDWARE_TOOLS
+    destructive = name in _DESTRUCTIVE_TOOL_NAMES
+    required_session_state = _required_session_state(name)
+    required_project_state = _required_project_state(name, risk)
+    if name in _LONG_DURATION_TOOLS:
+        duration_class = "long"
+    elif domain in _MEDIUM_DURATION_DOMAINS:
+        duration_class = "medium"
+    else:
+        duration_class = "short"
+    evidence_contract = [f"unified_result_v{RESPONSE_SCHEMA_VERSION}"]
+    if required_session_state == "managed_session":
+        evidence_contract.append("managed_session_generation")
+    if required_project_state in {"project_open", "managed_project_open"}:
+        evidence_contract.append("project_identity")
+    if hardware:
+        evidence_contract.append("hardware_not_validated")
+    return CapabilitySpec(
+        name=name,
+        domain=domain,
+        handler=f"_{name}",
+        description=tool.description or "",
+        input_schema=dict(tool.inputSchema),
+        output_schema=dict(tool.outputSchema or _output_schema()),
+        risk_class=risk,
+        profiles=_profiles_for_tool(name, hardware=hardware),
+        workflow_tags=_workflow_tags_for_tool(name),
+        required_session_state=required_session_state,
+        required_project_state=required_project_state,
+        read_only=read_only,
+        mutation=not read_only,
+        destructive=destructive,
+        hardware=hardware,
+        idempotent=read_only,
+        duration_class=duration_class,
+        supported_vivado_versions=() if name in _VIVADO_INDEPENDENT_TOOLS else (SUPPORTED_VIVADO_VERSION,),
+        qualified_vivado_versions=(),
+        task_eligible=duration_class == "long" and not hardware,
+        open_world=domain != "agent_guidance",
+        dispatch_lane="local" if name in _LOCAL_CONTROL_TOOL_NAMES else "serialized_backend",
+        execution_input_policy=(
+            "blocks_unattested_composite"
+            if name in _UNATTESTED_COMPOSITE_EXECUTION_TOOLS
+            else "typed_tool_policy"
+        ),
+        evidence_contract=tuple(evidence_contract),
+        artifact_contract=_ARTIFACT_CONTRACTS.get(name, ("none",)),
+        hardware_tier=hardware_tier,
+    )
+
+
+def _validate_capability_metadata() -> None:
+    seed_names = [tool.name for tool in _CAPABILITY_SCHEMA_SEEDS]
+    if len(seed_names) != len(set(seed_names)):
+        raise ValueError("Capability schema seed names must be unique")
+
+    domain_names = [name for names in CAPABILITY_DOMAIN_TOOL_NAMES.values() for name in names]
+    if len(domain_names) != len(set(domain_names)):
+        raise ValueError("Each capability must belong to exactly one domain")
+    if set(domain_names) != set(seed_names):
+        missing = sorted(set(seed_names) - set(domain_names))
+        unknown = sorted(set(domain_names) - set(seed_names))
+        raise ValueError(f"Capability domain metadata drifted; missing={missing!r}, unknown={unknown!r}")
+
+    risk_names = [name for names in _RISK_TOOL_NAMES.values() for name in names]
+    if len(risk_names) != len(set(risk_names)) or set(risk_names) != set(seed_names):
+        raise ValueError("Every capability must have exactly one explicit risk class")
+
+    exposure_names = [name for names in _EXPOSURE_TOOL_NAMES.values() for name in names]
+    if len(exposure_names) != len(set(exposure_names)) or set(exposure_names) != set(seed_names):
+        raise ValueError("Every capability must have exactly one explicit exposure class")
+
+    if not _DESTRUCTIVE_TOOL_NAMES <= set(seed_names):
+        raise ValueError("Destructive capability metadata references an unknown tool")
+    destructive_prefixes = (
+        "clean_",
+        "delete_",
+        "erase_",
+        "overwrite_",
+        "program_",
+        "remove_",
+        "reset_",
+    )
+    missing_destructive = sorted(
+        name
+        for name in seed_names
+        if name.startswith(destructive_prefixes) and name not in _DESTRUCTIVE_TOOL_NAMES
+    )
+    if missing_destructive:
+        raise ValueError(f"Destructive capability classification is missing: {missing_destructive!r}")
+
+    referenced_names = (
+        set(_CORE_TOOL_NAMES)
+        | set(_HARDWARE_TOOLS)
+        | set(_HARDWARE_DESTRUCTIVE_TOOLS)
+        | set(_IMMEDIATE_PROJECT_MUTATION_TOOLS)
+        | set(_UNATTESTED_COMPOSITE_EXECUTION_TOOLS)
+        | set(_EXISTING_PROJECT_EXECUTION_TOOLS)
+        | {
+            name
+            for sequence in CAPABILITY_WORKFLOW_SEQUENCES.values()
+            for name in sequence
+        }
+    )
+    unknown_references = sorted(referenced_names - set(seed_names))
+    if unknown_references:
+        raise ValueError(f"Capability metadata references unknown tools: {unknown_references!r}")
+
+
+_validate_capability_metadata()
+CAPABILITY_SPECS: tuple[CapabilitySpec, ...] = tuple(
+    _build_capability_spec(tool) for tool in _CAPABILITY_SCHEMA_SEEDS
+)
+TOOL_REGISTRY: dict[str, CapabilitySpec] = {spec.name: spec for spec in CAPABILITY_SPECS}
+if len(TOOL_REGISTRY) != len(CAPABILITY_SPECS):
+    raise ValueError("Capability names must be unique")
+
+TOOL_DEFS = [spec.to_mcp_tool() for spec in CAPABILITY_SPECS]
+
+HARDWARE_SAFE_DETECTOR_TOOLS = {
+    spec.name for spec in CAPABILITY_SPECS if spec.hardware_tier == "hardware_safe_detector"
+}
+HARDWARE_LOG_READONLY_TOOLS = {
+    spec.name for spec in CAPABILITY_SPECS if spec.hardware_tier == "hardware_log_readonly"
+}
+HARDWARE_DISABLED_BY_DEFAULT_TOOLS = {
+    spec.name for spec in CAPABILITY_SPECS if spec.hardware_tier == "hardware_disabled_by_default"
+}
+HARDWARE_DESTRUCTIVE_TOOLS = {
+    spec.name for spec in CAPABILITY_SPECS if spec.hardware_tier == "hardware_destructive"
+}
+HARDWARE_TOOLS = HARDWARE_SAFE_DETECTOR_TOOLS | HARDWARE_LOG_READONLY_TOOLS | HARDWARE_DISABLED_BY_DEFAULT_TOOLS
+IMMEDIATE_PROJECT_MUTATION_TOOLS = {
+    spec.name for spec in CAPABILITY_SPECS if spec.risk == "project_mutation_immediate"
+}
+EXISTING_PROJECT_EXECUTION_TOOLS = {
+    spec.name
+    for spec in CAPABILITY_SPECS
+    if spec.risk in {"project_execution", "destructive_dry_run"}
+    and spec.required_project_state == "managed_project_open"
+}
+UNATTESTED_COMPOSITE_EXECUTION_TOOLS = {
+    spec.name for spec in CAPABILITY_SPECS if spec.execution_input_policy == "blocks_unattested_composite"
+}
+CORE_TOOL_NAMES = frozenset(spec.name for spec in CAPABILITY_SPECS if "core" in spec.profiles)
+
+
 def hardware_tool_tiers() -> dict[str, list[str]]:
     return {
         "hardware_safe_detector": sorted(HARDWARE_SAFE_DETECTOR_TOOLS),
@@ -766,32 +1384,41 @@ def hardware_tool_tiers() -> dict[str, list[str]]:
     }
 
 
-def _risk_for_tool(name: str) -> str:
-    if name in {"run_tcl", "safe_tcl"}:
-        return "tcl_policy_dry_run"
-    if name in HARDWARE_DESTRUCTIVE_TOOLS:
-        return "hardware_destructive"
-    if name in {"reset_runs", "clean_run_outputs", "clean_runtime_cache"}:
-        return "destructive_dry_run"
-    if name in HARDWARE_TOOLS:
-        return "hardware"
-    if name in IMMEDIATE_PROJECT_MUTATION_TOOLS:
-        return "project_mutation_immediate"
-    if name in EXISTING_PROJECT_EXECUTION_TOOLS:
-        return "project_execution"
-    return "normal"
+def capability_domain_tool_names(domain: str) -> tuple[str, ...]:
+    return CAPABILITY_DOMAIN_TOOL_NAMES[domain]
 
 
-TOOL_REGISTRY: dict[str, ToolSpec] = {
-    tool.name: ToolSpec(
-        name=tool.name,
-        handler=f"_{tool.name}",
-        description=tool.description or "",
-        input_schema=dict(tool.inputSchema),
-        risk=_risk_for_tool(tool.name),
-    )
-    for tool in TOOL_DEFS
-}
+def capability_workflow_sequence(workflow_id: str) -> tuple[str, ...]:
+    return CAPABILITY_WORKFLOW_SEQUENCES[workflow_id]
+
+
+def local_control_tool_names() -> frozenset[str]:
+    return frozenset(spec.name for spec in CAPABILITY_SPECS if spec.dispatch_lane == "local")
+
+
+def capability_manifest(names: list[str] | set[str] | None = None) -> dict[str, Any]:
+    selected = set(names) if names is not None else set(TOOL_REGISTRY)
+    unknown = sorted(selected - set(TOOL_REGISTRY))
+    if unknown:
+        raise ValueError(f"Unknown capability name(s): {unknown!r}")
+    capabilities = [
+        spec.to_manifest_record()
+        for spec in CAPABILITY_SPECS
+        if spec.name in selected
+    ]
+    payload = {
+        "schema_version": CAPABILITY_SPEC_VERSION,
+        "capability_count": len(capabilities),
+        "capabilities": capabilities,
+        "hardware_validation": {
+            "status": "NOT_VALIDATED",
+            "validated": False,
+        },
+    }
+    payload["capability_digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return payload
 
 
 def tool_names() -> list[str]:
@@ -805,13 +1432,7 @@ def resolve_tool_profile(profile: str | None = None) -> str:
 
 def profile_tool_names(profile: str | None = None) -> list[str]:
     selected = resolve_tool_profile(profile)
-    if selected == "core":
-        available = CORE_TOOL_NAMES
-    elif selected == "advanced":
-        available = set(TOOL_REGISTRY) - HARDWARE_TOOLS - HARDWARE_DESTRUCTIVE_TOOLS
-    else:
-        available = set(TOOL_REGISTRY)
-    return sorted(name for name in available if name in TOOL_REGISTRY)
+    return sorted(spec.name for spec in CAPABILITY_SPECS if selected in spec.profiles)
 
 
 def tool_definitions(names: list[str] | set[str] | None = None) -> list[types.Tool]:

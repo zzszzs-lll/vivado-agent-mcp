@@ -716,8 +716,9 @@ class VivadoToolService:
         )
         return failure(tool, "TimeoutError", str(error) or f"{tool} timed out.", data=data)
 
-    def _get_tool_catalog(self, _: dict[str, Any]) -> dict[str, Any]:
-        data = build_tool_catalog(self.tool_names())
+    def _get_tool_catalog(self, args: dict[str, Any]) -> dict[str, Any]:
+        detail = str(args.get("detail", "compact") or "compact")
+        data = build_tool_catalog(self.tool_names(), detail=detail)
         data["active_tool_profile"] = self.tool_profile if self.enforce_tool_profile else "internal_full_registry"
         data["profile_enforced"] = self.enforce_tool_profile
         data["profile_env"] = TOOL_PROFILE_ENV

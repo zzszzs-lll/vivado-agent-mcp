@@ -13,7 +13,7 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
 from . import __version__
-from .registry import TOOL_PROFILE_ENV, profile_tool_names, resolve_tool_profile
+from .registry import TOOL_PROFILE_ENV, TOOL_REGISTRY, profile_tool_names, resolve_tool_profile
 from .release_identity import source_identity
 from .vivado.evidence_attestation import attest_diagnostic_manifest
 from .vivado.workflow_trace import WorkflowTracer
@@ -122,6 +122,7 @@ async def run_selftest(
             )
             _check_required_tools(checks, tool_by_name, active_profile=active_profile)
             _check_schema_fields(checks, tool_by_name)
+            _check_capability_annotations(checks, tool_by_name)
 
             catalog = await session.call_tool("get_tool_catalog", {})
             workflows = await session.call_tool("get_agent_workflows", {})
@@ -348,6 +349,36 @@ def _check_schema_fields(checks: list[dict[str, Any]], tool_by_name: dict[str, A
         if not missing_output
         else "One or more tool output schemas omit required Agent routing fields.",
         {"missing": missing_output},
+    )
+
+
+def _check_capability_annotations(checks: list[dict[str, Any]], tool_by_name: dict[str, Any]) -> None:
+    mismatches: dict[str, dict[str, Any]] = {}
+    for tool_name, tool in tool_by_name.items():
+        spec = TOOL_REGISTRY.get(tool_name)
+        annotations = getattr(tool, "annotations", None)
+        actual = {
+            "read_only": getattr(annotations, "readOnlyHint", None),
+            "destructive": getattr(annotations, "destructiveHint", None),
+            "idempotent": getattr(annotations, "idempotentHint", None),
+            "open_world": getattr(annotations, "openWorldHint", None),
+        }
+        expected = {
+            "read_only": spec.read_only if spec else None,
+            "destructive": spec.destructive if spec else None,
+            "idempotent": spec.idempotent if spec else None,
+            "open_world": spec.open_world if spec else None,
+        }
+        if spec is None or actual != expected:
+            mismatches[tool_name] = {"expected": expected, "actual": actual}
+    _add_check(
+        checks,
+        "capability_annotations",
+        "PASS" if not mismatches else "BLOCK",
+        "MCP annotations match the generated CapabilitySpec projection."
+        if not mismatches
+        else "One or more MCP annotations drift from CapabilitySpec.",
+        {"mismatches": mismatches},
     )
 
 

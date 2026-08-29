@@ -11,19 +11,13 @@ from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
 from . import __version__
-from .registry import TOOL_DEFS, _output_schema, tool_definitions
+from .registry import TOOL_DEFS, _output_schema, local_control_tool_names, tool_definitions
 from .tools import VivadoToolService
 
 
 server = Server("vivado-agent-mcp")
 service = VivadoToolService(enforce_tool_profile=True)
-_LOCAL_CONTROL_TOOLS = {
-    "get_tool_catalog",
-    "get_agent_workflows",
-    "get_agent_scenarios",
-    "get_workflow_trace_status",
-    "session_status",
-}
+_LOCAL_CONTROL_TOOLS = local_control_tool_names()
 
 
 class _DispatchRequest:

@@ -55,6 +55,8 @@ def test_selftest_cli_runs_from_current_source(tmp_path: Path) -> None:
     assert checks["list_tools"]["data"]["tool_profile"] == "core"
     assert checks["required_tools"]["status"] == "PASS"
     assert checks["input_schema_contract"]["status"] == "PASS"
+    assert checks["output_schema_contract"]["status"] == "PASS"
+    assert checks["capability_annotations"]["status"] == "PASS"
     assert checks["get_tool_catalog"]["status"] == "PASS"
     assert checks["get_agent_workflows"]["status"] == "PASS"
     assert checks["get_agent_scenarios"]["status"] == "PASS"
