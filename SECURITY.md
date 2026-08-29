@@ -8,6 +8,8 @@
 
 真实 FPGA、JTAG、Hardware Manager、烧录、ILA/VIO 和 flash cfgmem 未完成硬件验证，所有相关状态均为 `NOT_VALIDATED`。
 
+Commit-bound live qualification 只证明其 record 明确声明的无板卡软件范围。`trusted`、`compatible`、`qualified`、软件 `PASS`、bitstream、signoff 或 diagnostic evidence 均不得继承为真实硬件验证。
+
 ## 报告漏洞
 
 仓库公开并启用 GitHub Private vulnerability reporting 后，请使用 Security 页面中的 **Report a vulnerability** 私下提交报告。在该入口可用前，只能创建一个不包含利用代码、密钥、客户数据或敏感路径的最小公开 Issue，请求维护者建立私下沟通渠道。

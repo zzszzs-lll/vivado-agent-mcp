@@ -236,6 +236,7 @@ def run_clean_install_smoke(
         if source_provenance_manifest_path is not None:
             provenance_verified, provenance_data = _verify_supplied_source_provenance(
                 workspace=workspace,
+                snapshot_dir=run_dir / "source_provenance_snapshot",
                 manifest_path=source_provenance_manifest_path,
                 source=source_before_build,
                 wheel_path=wheel_path,
@@ -1035,6 +1036,7 @@ def _classify_doctor_report(report: dict[str, Any], *, returncode: int) -> tuple
 def _verify_supplied_source_provenance(
     *,
     workspace: Path,
+    snapshot_dir: Path,
     manifest_path: Path,
     source: dict[str, Any],
     wheel_path: Path,
@@ -1069,18 +1071,24 @@ def _verify_supplied_source_provenance(
         if isinstance(manifest.get("package_member_comparison"), dict)
         else {}
     )
-    current_source_manifest = package_member_manifest(
-        workspace / "src" / "vivado_agent_mcp",
-        relative_to=workspace / "src",
+    immutable_snapshot = materialize_immutable_git_snapshot(workspace, snapshot_dir)
+    immutable_source_manifest = (
+        immutable_snapshot.get("package_manifest")
+        if isinstance(immutable_snapshot.get("package_manifest"), dict)
+        else {}
     )
     actual_wheel_manifest = wheel_package_member_manifest(wheel_path)
-    source_comparison = compare_package_member_manifests(source_manifest, current_source_manifest)
+    source_comparison = compare_package_member_manifests(source_manifest, immutable_source_manifest)
     wheel_comparison = compare_package_member_manifests(source_manifest, actual_wheel_manifest)
 
     if manifest.get("status") != "PASS" or manifest.get("source_wheel_provenance_verified") is not True:
         reasons.append("manifest does not attest a successful source-to-wheel build")
     if source.get("available") is not True or source.get("clean") is not True:
         reasons.append("current workspace source identity is unavailable or dirty")
+    if immutable_snapshot.get("ok") is not True:
+        reasons.append("current immutable Git snapshot could not be materialized")
+    elif immutable_snapshot.get("source_identity", {}).get("identity_id") != source.get("identity_id"):
+        reasons.append("current immutable Git snapshot identity does not match the workspace")
     if not source.get("identity_id") or manifest_source.get("identity_id") != source.get("identity_id"):
         reasons.append("manifest source identity does not match the current workspace")
     if manifest_wheel.get("name") != wheel_path.name or manifest_wheel.get("sha256") != wheel_sha256:
@@ -1090,7 +1098,7 @@ def _verify_supplied_source_provenance(
     if manifest_comparison.get("matches") is not True:
         reasons.append("manifest package member comparison is not successful")
     if not source_comparison["matches"]:
-        reasons.append("manifest source package members do not match the current clean workspace")
+        reasons.append("manifest source package members do not match the current immutable Git snapshot")
     if not wheel_comparison["matches"]:
         reasons.append("supplied wheel package members do not match the manifest source package members")
     if hardware.get("status") != "NOT_VALIDATED" or hardware.get("validated") is not False:
@@ -1099,6 +1107,13 @@ def _verify_supplied_source_provenance(
         "manifest_path": str(manifest_path),
         "manifest_sha256": sha256_file(manifest_path),
         "source_identity": manifest_source,
+        "immutable_source_snapshot": {
+            "ok": immutable_snapshot.get("ok") is True,
+            "snapshot_type": str(immutable_snapshot.get("snapshot_type", "")),
+            "archive_sha256": str(immutable_snapshot.get("archive_sha256", "")),
+            "reason_code": str(immutable_snapshot.get("reason_code", "")),
+            "reason": str(immutable_snapshot.get("reason", "")),
+        },
         "wheel": {"name": wheel_path.name, "sha256": wheel_sha256},
         "source_package_comparison": source_comparison,
         "wheel_package_comparison": wheel_comparison,
@@ -1111,6 +1126,7 @@ def _validation_harness_manifest(workspace: Path) -> dict[str, Any]:
     relative_paths = [
         "tests/agent_scenario_runner.py",
         "tests/agent_stdio_regression.py",
+        "tests/live_qualification_runner.py",
     ]
     files: list[dict[str, Any]] = []
     errors: list[str] = []

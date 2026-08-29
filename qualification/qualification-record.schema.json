@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zzszzs-lll/vivado-agent-mcp/qualification/qualification-record.schema.json",
+  "title": "Vivado Agent MCP commit-bound qualification record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_id",
+    "generated_at",
+    "qualification_status",
+    "terminal",
+    "source",
+    "package",
+    "vivado",
+    "runner",
+    "fixture",
+    "execution",
+    "evidence",
+    "software_validation",
+    "hardware_validation"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "record_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "qualification_status": {
+      "type": "string",
+      "enum": ["compatible", "qualified", "rejected", "trusted", "unvalidated"]
+    },
+    "terminal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_code", "message", "started_at", "ended_at"],
+      "properties": {
+        "status": {"type": "string", "enum": ["BLOCK", "INTERRUPTED", "PASS", "SKIPPED", "UNAVAILABLE"]},
+        "reason_code": {"type": "string", "minLength": 1},
+        "message": {"type": "string"},
+        "started_at": {"type": "string", "format": "date-time"},
+        "ended_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "tree", "dirty", "tracked_digest", "source_archive_sha256"],
+      "properties": {
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+        "tree": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+        "dirty": {"type": "boolean"},
+        "tracked_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_archive_sha256": {"type": "string", "pattern": "^(?:|[0-9a-f]{64})$"}
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "wheel", "sdist", "source_wheel_pair_id", "provenance_verified"],
+      "properties": {
+        "name": {"const": "vivado-agent-mcp"},
+        "version": {"type": "string", "minLength": 1},
+        "wheel": {"$ref": "#/$defs/packageArtifact"},
+        "sdist": {"$ref": "#/$defs/packageArtifact"},
+        "source_wheel_pair_id": {"type": "string", "pattern": "^(?:|[0-9a-f]{64})$"},
+        "provenance_verified": {"type": "boolean"}
+      }
+    },
+    "vivado": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_status",
+        "canonical_path_sha256",
+        "executable_sha256",
+        "file_identity",
+        "version",
+        "full_version",
+        "build",
+        "version_attested"
+      ],
+      "properties": {
+        "identity_status": {"type": "string", "enum": ["MISMATCH", "UNATTESTED", "UNAVAILABLE", "VERIFIED"]},
+        "canonical_path_sha256": {"type": "string", "pattern": "^(?:|[0-9a-f]{64})$"},
+        "executable_sha256": {"type": "string", "pattern": "^(?:|[0-9a-f]{64})$"},
+        "file_identity": {"type": "object"},
+        "version": {"type": "string"},
+        "full_version": {"type": "string"},
+        "build": {"type": "string"},
+        "version_attested": {"type": "boolean"}
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "os_version", "architecture", "python_version", "runner_class", "identity_sha256"],
+      "properties": {
+        "os": {"type": "string", "minLength": 1},
+        "os_version": {"type": "string", "minLength": 1},
+        "architecture": {"type": "string", "minLength": 1},
+        "python_version": {"type": "string", "minLength": 1},
+        "runner_class": {"type": "string", "minLength": 1},
+        "identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "aggregate_sha256", "files"],
+      "properties": {
+        "id": {"const": "minimal-counter-v1"},
+        "aggregate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "size", "sha256"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "size": {"type": "integer", "minimum": 1},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool_profile", "policy_version", "workflow_version", "scenario_id", "scenario_version"],
+      "properties": {
+        "tool_profile": {"type": "string", "minLength": 1},
+        "policy_version": {"type": "string", "minLength": 1},
+        "workflow_version": {"type": "string", "minLength": 1},
+        "scenario_id": {"type": "string", "minLength": 1},
+        "scenario_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "freshness",
+        "normalized_evidence_sha256",
+        "scenario_result",
+        "artifact_manifest",
+        "report_manifest",
+        "audit_result",
+        "diagnostic_manifest"
+      ],
+      "properties": {
+        "freshness": {"type": "string", "enum": ["FRESH", "MISSING", "STALE"]},
+        "normalized_evidence_sha256": {"type": "string", "pattern": "^(?:|[0-9a-f]{64})$"},
+        "scenario_result": {"$ref": "#/$defs/evidenceEntry"},
+        "artifact_manifest": {"$ref": "#/$defs/evidenceEntry"},
+        "report_manifest": {"$ref": "#/$defs/evidenceEntry"},
+        "audit_result": {"$ref": "#/$defs/evidenceEntry"},
+        "diagnostic_manifest": {"$ref": "#/$defs/evidenceEntry"}
+      }
+    },
+    "software_validation": {"$ref": "#/$defs/validationBoundary"},
+    "hardware_validation": {"$ref": "#/$defs/validationBoundary"}
+  },
+  "$defs": {
+    "packageArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256"],
+      "properties": {
+        "name": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^(?:|[0-9a-f]{64})$"}
+      }
+    },
+    "evidenceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "sha256"],
+      "properties": {
+        "size": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^(?:|[0-9a-f]{64})$"}
+      }
+    },
+    "validationBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "validated", "scope"],
+      "properties": {
+        "status": {"type": "string", "minLength": 1},
+        "validated": {"type": "boolean"},
+        "scope": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

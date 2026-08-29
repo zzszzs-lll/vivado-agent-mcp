@@ -46,3 +46,22 @@ PR 描述至少包含：
 - 对文档、兼容性和硬件验证口径的影响。
 
 维护者会优先检查行为回归、安全边界、证据新鲜度、错误恢复和测试充分性。
+
+## Live Vivado qualification
+
+普通 PR CI 不启动 Vivado。commit-bound live qualification 只能通过手动 self-hosted workflow 或等价本地入口运行，并且必须使用 immutable Git snapshot 构建出的 exact wheel/sdist 与 clean-install release manifest：
+
+```powershell
+python tests/live_qualification_runner.py --help
+```
+
+Qualification PR 还必须满足：
+
+- runner 使用现有 S01 MCP stdio flow，不建立旁路 Tcl/Shell 执行面；
+- record 通过 `qualification/qualification-record.schema.json` 对应的 fail-closed validator；
+- commit、source archive、wheel、sdist、Vivado executable/build、fixture 和 evidence digest 全部匹配；
+- 无 live 环境只能记录 `SKIPPED`、`UNAVAILABLE` 或 `unvalidated`，不得写成 `qualified`；
+- `hardware_validation.status=NOT_VALIDATED` 且 `validated=false`；
+- workflow artifact 不得包含用户目录、机器名、许可证路径、客户工程或原始大日志。
+
+公开 matrix 位于 `qualification/matrix.json`。不要只凭本地运行口头说明修改为 `qualified`；应先保存并审阅对应 commit 的 qualification record。

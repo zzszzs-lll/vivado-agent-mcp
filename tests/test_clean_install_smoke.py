@@ -505,6 +505,7 @@ def test_supplied_source_provenance_blocks_foreign_wheel_hash(tmp_path: Path) ->
 
     verified, data = clean_install_smoke._verify_supplied_source_provenance(
         workspace=workspace,
+        snapshot_dir=tmp_path / "source-provenance-snapshot",
         manifest_path=manifest_path,
         source=source,
         wheel_path=wheel_path,
@@ -513,6 +514,80 @@ def test_supplied_source_provenance_blocks_foreign_wheel_hash(tmp_path: Path) ->
 
     assert verified is False
     assert "manifest wheel identity does not match the supplied wheel" in data["reasons"]
+
+
+def test_supplied_source_provenance_uses_immutable_snapshot_not_worktree_bytes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    wheel_path = tmp_path / "vivado_agent_mcp-0.10.0-py3-none-any.whl"
+    _write_fake_wheel(wheel_path)
+    wheel_sha256 = clean_install_smoke.sha256_file(wheel_path)
+    source = {
+        "available": True,
+        "clean": True,
+        "identity_id": "a" * 64,
+    }
+    immutable_manifest = clean_install_smoke.wheel_package_member_manifest(wheel_path)
+    manifest_path = tmp_path / "source-provenance.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "status": "PASS",
+                "package": {"name": "vivado-agent-mcp", "version": "0.10.0"},
+                "source_identity": source,
+                "source_package_manifest": immutable_manifest,
+                "package_member_comparison": {"matches": True},
+                "wheel": {"name": wheel_path.name, "sha256": wheel_sha256},
+                "source_wheel_provenance_verified": True,
+                "hardware_validation": {"status": "NOT_VALIDATED", "validated": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        clean_install_smoke,
+        "package_member_manifest",
+        lambda *args, **kwargs: {
+            "schema_version": 1,
+            "member_count": 1,
+            "digest": "0" * 64,
+            "members": [
+                {
+                    "path": "vivado_agent_mcp/__init__.py",
+                    "size": 999,
+                    "sha256": "0" * 64,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        clean_install_smoke,
+        "materialize_immutable_git_snapshot",
+        lambda workspace, destination: {
+            "ok": True,
+            "snapshot_type": "git_archive_head",
+            "snapshot_root": str(destination),
+            "archive_sha256": "b" * 64,
+            "source_identity": source,
+            "package_manifest": immutable_manifest,
+        },
+    )
+
+    verified, data = clean_install_smoke._verify_supplied_source_provenance(
+        workspace=workspace,
+        snapshot_dir=tmp_path / "source-provenance-snapshot",
+        manifest_path=manifest_path,
+        source=source,
+        wheel_path=wheel_path,
+        wheel_sha256=wheel_sha256,
+    )
+
+    assert verified is True
+    assert data["source_package_comparison"]["matches"] is True
+    assert data["immutable_source_snapshot"]["ok"] is True
 
 
 @pytest.mark.parametrize("missing_artifact", ["venv_python", "console_script"])

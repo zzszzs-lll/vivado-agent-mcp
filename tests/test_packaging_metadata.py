@@ -24,6 +24,11 @@ def test_public_package_exposes_only_end_user_console_script() -> None:
         "vivado-agent-mcp": "vivado_agent_mcp.__main__:main",
     }
     assert set(config["project"]["optional-dependencies"]["dev"]) >= {"build>=1.2", "pytest>=8", "twine>=6"}
+    assert config["tool"]["setuptools"]["package-data"]["vivado_agent_mcp"] == [
+        "qualification_fixture/*.sv",
+        "qualification_fixture/*.xdc",
+    ]
+    assert (WORKSPACE / "MANIFEST.in").read_text(encoding="utf-8").strip() == "recursive-include qualification *.json"
 
 
 def test_distribution_ci_installs_the_exact_verified_wheel() -> None:

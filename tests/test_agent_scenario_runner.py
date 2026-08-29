@@ -156,6 +156,7 @@ def test_validation_harness_verifier_blocks_one_byte_runner_change(tmp_path: Pat
     paths = (
         "tests/agent_scenario_runner.py",
         "tests/agent_stdio_regression.py",
+        "tests/live_qualification_runner.py",
     )
     entries = []
     for relative in paths:
@@ -524,19 +525,54 @@ def test_validation_matrix_rejects_thin_live_evidence() -> None:
 def test_write_s01_project_sources_matches_minimal_counter_shape(tmp_path: Path) -> None:
     inputs = write_s01_project_sources(tmp_path / "s01")
 
-    assert inputs["target_language"] == "Verilog"
-    assert inputs["top"] == "counter_top"
-    assert inputs["testbench_top"] == "tb_counter_top"
+    assert inputs["target_language"] == "SystemVerilog"
+    assert inputs["top"] == "qualification_counter"
+    assert inputs["testbench_top"] == "tb_qualification_counter"
     assert len(inputs["rtl_files"]) == 1
+    assert inputs["qualification_fixture"]["id"] == "minimal-counter-v1"
     tb_text = Path(inputs["sim_files"][0]).read_text(encoding="utf-8")
     xdc_text = Path(inputs["xdc_files"][0]).read_text(encoding="utf-8")
     assert "$finish" in tb_text
     assert "TB_PASS" in tb_text
-    assert "reg done;" in tb_text
-    assert "done = 1'b1;" in tb_text
-    assert "if (!done)" in tb_text
+    assert "logic finished" in tb_text
+    assert "finished = 1'b1;" in tb_text
+    assert "if (!finished)" in tb_text
     assert "create_clock" in xdc_text
     assert "CFGBVS" in xdc_text
+
+
+def test_qualification_vivado_environment_binds_identity_without_disclosing_path(tmp_path: Path) -> None:
+    vivado_path = tmp_path / "Vivado" / "2021.2" / "bin" / "vivado.bat"
+    structured = {
+        "ok": True,
+        "data": {
+            "trusted_executable_identity": {
+                "canonical_path": str(vivado_path),
+                "object_identity": [7, 11],
+                "file_identity": [1234, 99],
+                "sha256": "a" * 64,
+                "request_path_verified": True,
+            },
+            "launch_probe": {
+                "version_attested": True,
+                "probed_version": "2021.2",
+                "stdout_tail": (
+                    "Vivado v2021.2 (64-bit)\n"
+                    "SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021\n"
+                    "IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021\n"
+                ),
+                "stderr_tail": "",
+            },
+        },
+    }
+    summary = runner.qualification_vivado_environment(structured)
+    assert summary["identity_status"] == "VERIFIED"
+    assert summary["version"] == "2021.2"
+    assert summary["full_version"] == "Vivado v2021.2 (64-bit)"
+    assert "SW Build 3367213" in summary["build"]
+    assert "IP Build 3369179" in summary["build"]
+    assert summary["executable_sha256"] == "a" * 64
+    assert str(vivado_path) not in json.dumps(summary)
 
 
 def test_write_s02_project_sources_matches_scenario_shape(tmp_path: Path) -> None:

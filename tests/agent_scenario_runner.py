@@ -29,6 +29,7 @@ if not _SOURCE_IMPORT_DISABLED and _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
 import vivado_agent_mcp as _installed_package  # noqa: E402
+from vivado_agent_mcp.qualification import materialize_qualification_fixture  # noqa: E402
 from vivado_agent_mcp.vivado.agent_catalog import (  # noqa: E402
     DEFAULT_LIVE_SCENARIOS,
     DEFAULT_NO_LIVE_SCENARIOS,
@@ -458,6 +459,7 @@ def _verify_validation_harness(manifest: dict[str, Any], workspace: Path) -> dic
     expected_paths = [
         "tests/agent_scenario_runner.py",
         "tests/agent_stdio_regression.py",
+        "tests/live_qualification_runner.py",
     ]
     if harness.get("status") != "READY" or [str(item.get("path", "")) for item in entries if isinstance(item, dict)] != expected_paths:
         raise RunnerProvenanceError("release manifest validation_harness is missing or incomplete")
@@ -2124,6 +2126,7 @@ async def run_live_project_flow(
     signoff: dict[str, Any] = {}
     audit: dict[str, Any] = {}
     bundle: dict[str, Any] = {}
+    vivado_environment: dict[str, Any] = {}
     handoff_blocker = ""
     checkpoint_path = scenario_dir / "agent_scenario_runner_checkpoint.json"
     progress_path = scenario_dir / "scenario_progress.jsonl"
@@ -2177,6 +2180,27 @@ async def run_live_project_flow(
             await call_tool(session, "get_tool_catalog", {}, transcript)
             await call_tool(session, "get_agent_workflows", {}, transcript)
             await call_tool(session, "get_agent_scenarios", {"scenario_id": scenario_id}, transcript)
+            if scenario_id == "S01":
+                environment_result = await call_tool(
+                    session,
+                    "detect_vivado_environment",
+                    {
+                        "probe_launch": True,
+                        "probe_timeout_s": min(max(vivado_timeout_s, 60), 300),
+                        "runtime_dir": str(scenario_dir / "runtime"),
+                    },
+                    transcript,
+                )
+                vivado_environment = qualification_vivado_environment(environment_result)
+                if not _structured_ok(environment_result) or vivado_environment.get("identity_status") != "VERIFIED":
+                    return _live_project_failure(
+                        scenario_id,
+                        label,
+                        scenario_dir,
+                        transcript,
+                        tools=len(tools.tools),
+                        summary="detect_vivado_environment did not attest the trusted Vivado executable/version.",
+                    )
             start = await call_tool(
                 session,
                 "start_session",
@@ -2304,6 +2328,8 @@ async def run_live_project_flow(
         "evidence_dir": str(scenario_dir),
         "project_path": str(project_path),
         "manifest_path": manifest_path,
+        "vivado_environment": vivado_environment,
+        "qualification_fixture": project_inputs.get("qualification_fixture", {}),
         "tool_count": len(tools.tools),
         "tool_definition_count": len(tools.tools),
         "tool_call_count": len(transcript),
@@ -2328,6 +2354,42 @@ async def run_live_project_flow(
         "summary": status["summary"],
         "recommendations": status["recommendations"],
         "handoff_tools_ok": all(_tool_status_ok(item) for item in (artifacts, reports, signoff, audit, bundle) if item),
+    }
+
+
+def qualification_vivado_environment(structured: dict[str, Any]) -> dict[str, Any]:
+    data = structured.get("data") if isinstance(structured.get("data"), dict) else {}
+    trusted = data.get("trusted_executable_identity") if isinstance(data.get("trusted_executable_identity"), dict) else {}
+    probe = data.get("launch_probe") if isinstance(data.get("launch_probe"), dict) else {}
+    canonical_path = str(trusted.get("canonical_path", ""))
+    canonical_identity = os.path.normcase(str(Path(canonical_path).resolve(strict=False))) if canonical_path else ""
+    probe_output = "\n".join(
+        value
+        for value in (str(probe.get("stdout_tail", "")), str(probe.get("stderr_tail", "")))
+        if value
+    )
+    output_lines = [line.strip() for line in probe_output.splitlines() if line.strip()]
+    full_version = next((line for line in output_lines if line.lower().startswith("vivado ")), "")
+    build_lines = [line for line in output_lines if "build" in line.lower()]
+    return {
+        "identity_status": (
+            "VERIFIED"
+            if structured.get("ok")
+            and trusted.get("request_path_verified") is True
+            and probe.get("version_attested") is True
+            and bool(trusted.get("sha256"))
+            else "UNATTESTED"
+        ),
+        "canonical_path_sha256": hashlib.sha256(canonical_identity.encode("utf-8")).hexdigest() if canonical_identity else "",
+        "executable_sha256": str(trusted.get("sha256", "")),
+        "file_identity": {
+            "object_identity": list(trusted.get("object_identity", [])),
+            "file_identity": list(trusted.get("file_identity", [])),
+        },
+        "version": str(probe.get("probed_version", "") or ""),
+        "full_version": full_version,
+        "build": " | ".join(build_lines),
+        "version_attested": probe.get("version_attested") is True,
     }
 
 
@@ -2784,122 +2846,15 @@ set_property CONFIG_VOLTAGE 3.3 [current_design]
 
 
 def write_s01_project_sources(root: Path) -> dict[str, Any]:
-    src_dir = root / "src"
-    sim_dir = root / "sim"
-    xdc_dir = root / "xdc"
-    src_dir.mkdir(parents=True, exist_ok=True)
-    sim_dir.mkdir(parents=True, exist_ok=True)
-    xdc_dir.mkdir(parents=True, exist_ok=True)
-
-    top = src_dir / "counter_top.v"
-    top.write_text(
-        """module counter_top (
-    input wire clk,
-    input wire rst_n,
-    output wire [3:0] led
-);
-    reg [7:0] counter;
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            counter <= 8'd0;
-        end else begin
-            counter <= counter + 8'd1;
-        end
-    end
-
-    assign led = counter[7:4];
-endmodule
-""",
-        encoding="utf-8",
-    )
-
-    tb = sim_dir / "tb_counter_top.v"
-    tb.write_text(
-        """`timescale 1ns/1ps
-module tb_counter_top;
-    reg clk;
-    reg rst_n;
-    wire [3:0] led;
-    reg [3:0] last_led;
-    reg done;
-    integer transitions;
-
-    counter_top dut (
-        .clk(clk),
-        .rst_n(rst_n),
-        .led(led)
-    );
-
-    initial begin
-        clk = 1'b0;
-        forever #5 clk = ~clk;
-    end
-
-    initial begin
-        transitions = 0;
-        done = 1'b0;
-        rst_n = 1'b0;
-        repeat (4) @(posedge clk);
-        rst_n = 1'b1;
-        last_led = led;
-        repeat (512) begin
-            @(posedge clk);
-            if (led !== last_led) begin
-                transitions = transitions + 1;
-                last_led = led;
-            end
-        end
-        if (transitions < 4) begin
-            done = 1'b1;
-            $display("TB_FAIL transitions=%0d", transitions);
-            $finish;
-        end
-        done = 1'b1;
-        $display("TB_PASS transitions=%0d", transitions);
-        $finish;
-    end
-
-    initial begin
-        #10000;
-        if (!done) begin
-            $display("TB_FAIL timeout");
-        end
-        $finish;
-    end
-endmodule
-""",
-        encoding="utf-8",
-    )
-
-    xdc = xdc_dir / "counter.xdc"
-    xdc.write_text(
-        """set_property PACKAGE_PIN W5 [get_ports clk]
-set_property IOSTANDARD LVCMOS33 [get_ports clk]
-create_clock -period 10.000 -name sys_clk [get_ports clk]
-
-set_property PACKAGE_PIN U18 [get_ports rst_n]
-set_property IOSTANDARD LVCMOS33 [get_ports rst_n]
-
-set_property PACKAGE_PIN U16 [get_ports {led[0]}]
-set_property PACKAGE_PIN E19 [get_ports {led[1]}]
-set_property PACKAGE_PIN U19 [get_ports {led[2]}]
-set_property PACKAGE_PIN V19 [get_ports {led[3]}]
-set_property IOSTANDARD LVCMOS33 [get_ports {led[*]}]
-
-set_property CFGBVS VCCO [current_design]
-set_property CONFIG_VOLTAGE 3.3 [current_design]
-""",
-        encoding="utf-8",
-    )
-
+    materialized = materialize_qualification_fixture(root / "qualification_fixture")
+    if materialized.get("ok") is not True:
+        raise RuntimeError(
+            "Qualification fixture could not be materialized: "
+            + str(materialized.get("reason_code", "QUALIFICATION_FIXTURE_BLOCKED"))
+        )
     return {
-        "rtl_files": [str(top)],
-        "xdc_files": [str(xdc)],
-        "sim_files": [str(tb)],
-        "top": "counter_top",
-        "testbench_top": "tb_counter_top",
-        "target_language": "Verilog",
+        **materialized["project_inputs"],
+        "qualification_fixture": materialized["manifest"],
     }
 
 

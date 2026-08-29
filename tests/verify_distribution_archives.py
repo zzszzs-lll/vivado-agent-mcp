@@ -24,12 +24,29 @@ def main(argv: list[str] | None = None) -> int:
                 errors.append("wheel does not contain dist-info/licenses/LICENSE")
             if any(path.name in {"release_bundle.py", "source_cleanup.py"} for path in names):
                 errors.append("wheel contains maintainer-only release or source-cleanup modules")
+            fixture_names = {
+                "vivado_agent_mcp/qualification_fixture/qualification_counter.sv",
+                "vivado_agent_mcp/qualification_fixture/tb_qualification_counter.sv",
+                "vivado_agent_mcp/qualification_fixture/qualification_counter.xdc",
+            }
+            archived_names = {path.as_posix() for path in names}
+            if not fixture_names <= archived_names:
+                errors.append("wheel does not contain the complete deterministic qualification fixture")
 
     if sdists:
         with tarfile.open(sdists[0], mode="r:gz") as archive:
             names = [PurePosixPath(name) for name in archive.getnames()]
             if not any(path.name == "LICENSE" and len(path.parts) == 2 for path in names):
                 errors.append("sdist does not contain a top-level LICENSE")
+            relative_names = {
+                "/".join(path.parts[1:])
+                for path in names
+                if len(path.parts) >= 2
+            }
+            if "qualification/qualification-record.schema.json" not in relative_names:
+                errors.append("sdist does not contain the public qualification record schema")
+            if "qualification/matrix.json" not in relative_names:
+                errors.append("sdist does not contain the public qualification matrix")
 
     if errors:
         print("distribution archive verification: BLOCK", file=sys.stderr)
