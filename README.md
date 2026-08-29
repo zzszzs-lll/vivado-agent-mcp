@@ -12,7 +12,8 @@
 |---|---|
 | 软件成熟度 | Alpha，适合研究、开发和受监督试用 |
 | Python 包版本 | `0.10.0` |
-| 受信任 Vivado 版本 | `2021.2` |
+| 受信任执行策略 | 精确 `2021.2`，其它版本 fail-closed |
+| 公开 commit-bound Live qualification | tracked matrix 当前为 `unvalidated` |
 | 操作系统 | Windows |
 | 主要范围 | 纯 RTL/XDC 的 Vivado Project Mode 无板卡软件闭环 |
 | 真实 FPGA/JTAG 验证 | `NOT_VALIDATED` |
@@ -33,6 +34,28 @@
 | Hardware Manager、JTAG、烧录、ILA/VIO | 实验接口，默认关闭 | 仅负路径和门禁测试；真实硬件 `NOT_VALIDATED` |
 
 GitHub Actions 的绿色状态证明 Python、MCP 契约和发行物安装链路。仓库当前不提供与每个 commit 绑定、可独立复核的 live Vivado acceptance evidence；表中的本地 Vivado smoke 是维护者报告，不表示 GitHub Runner 上运行过 Vivado，也不表示真实 FPGA 硬件通过。
+
+## Commit-bound Live Vivado Qualification
+
+仓库提供第一版正式 qualification 合约，用于把一个 Git commit、immutable source archive、exact wheel/sdist、真实 Vivado executable/build、确定性 fixture 和最终 evidence digest 绑定到同一机器可验证记录：
+
+- [Qualification record JSON Schema](qualification/qualification-record.schema.json)
+- [Vivado qualification matrix](qualification/matrix.json)
+- 确定性 fixture：`minimal-counter-v1`，随 wheel 分发的 SystemVerilog RTL、自检查 testbench 和 XDC
+- 本地 runner：`tests/live_qualification_runner.py`
+- 手动 self-hosted workflow：`.github/workflows/live-qualification.yml`
+
+资格状态含义：
+
+| 状态 | 含义 |
+|---|---|
+| `trusted` | 版本/可执行文件符合管理员配置的执行策略，但尚未完成本 commit 的完整 live qualification |
+| `qualified` | exact source/package、真实 Vivado build、S01 live 软件流和完整新鲜 evidence 均通过校验 |
+| `compatible` | 存在兼容性观察证据，但不会自动获得 trusted 执行资格 |
+| `unvalidated` | 尚无可接受的 commit-bound live evidence |
+| `rejected` | live 运行失败、被中断，或身份/证据契约不成立 |
+
+`qualified` 只证明无板卡 Project Mode 软件流。它不会把 `hardware_validation.status` 从 `NOT_VALIDATED` 改为真实板卡通过。tracked matrix 只在审阅 qualification record 后更新；普通 Python CI、mock、fake-session、doctor 或维护者口头 smoke 都不能产生 `qualified`。
 
 ## 安全边界
 
@@ -149,6 +172,7 @@ Agent 开始 Vivado 工作时应遵循以下顺序：
 - `python -m pytest`：Python 单元测试、解析器、安全门禁、fake session 与 MCP 契约。
 - `tests/agent_stdio_regression.py`：只通过 MCP stdio 消费 catalog、workflow、`next_actions` 和诊断结果。
 - `tests/agent_scenario_runner.py`：S00-S07 Agent 场景；默认不启动 Vivado，显式 `--include-live-vivado` 才运行本地软件流程。
+- `tests/live_qualification_runner.py`：使用 exact wheel、source provenance 和 S01 MCP stdio live flow 生成 commit-bound qualification record；未显式授权 live 或环境不可用时只能生成 `unvalidated` / `unavailable` 结果。
 - `doctor`：检查本机 Python、runtime 和由实际 `vivado -version` 输出证明的 Vivado 版本。
 - `selftest`：检查已安装入口、stdio、工具目录、结构化响应和安全边界。
 - GitHub CI 使用 `requirements/` 中按 Python 版本区分的精确版本与 SHA256 lock；发行物从 immutable `git archive HEAD` snapshot 构建，并逐字节核对 wheel 中的 Python package members。
@@ -185,6 +209,7 @@ git diff --check
 ## 已知限制
 
 - 当前受信任执行基线固定为 Windows 与 Vivado `2021.2`；其它 Vivado 版本默认 fail-closed。
+- 受信任版本不等于已完成公开 qualification；以 [tracked qualification matrix](qualification/matrix.json) 和对应 workflow artifact 为准。
 - 当前主流程是 Project Mode，不覆盖 Non-Project Mode。
 - 已有工程默认按 inspection-only 边界接手，避免 Agent 无意修改外部工程。
 - working-copy 重建只复现当前 allowlist 中的逐文件语义，包括 file type、library、global include、used-in、XDC processing order 和 scope；发现未知、缺失或重建后不一致时会 fail-closed。

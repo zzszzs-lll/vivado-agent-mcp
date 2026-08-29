@@ -42,6 +42,9 @@ vivado-agent-mcp = "vivado_agent_mcp.__main__:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+vivado_agent_mcp = ["qualification_fixture/*.sv", "qualification_fixture/*.xdc"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

@@ -1,0 +1,165 @@
+name: Live Vivado Qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      part:
+        description: Vivado part used by the deterministic qualification fixture
+        required: true
+        default: xc7a35tcpg236-1
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-qualification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  qualify-vivado-2021-2:
+    runs-on: [self-hosted, Windows, vivado-2021.2]
+    timeout-minutes: 180
+    env:
+      VIVADO_PATH: ${{ vars.VIVADO_2021_2_PATH }}
+      VIVADO_AGENT_MCP_RUNTIME_DIR: ${{ github.workspace }}\test_use\live_qualification_runtime
+      VIVADO_AGENT_MCP_TOOL_PROFILE: core
+      SystemRoot: C:\WINDOWS
+      WINDIR: C:\WINDOWS
+
+    steps:
+      - name: Check out exact source commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        id: python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Verify trusted Vivado path is configured
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VIVADO_PATH)) {
+            throw "Repository variable VIVADO_2021_2_PATH is required on the self-hosted runner."
+          }
+
+      - name: Install locked build and test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --require-hashes -r requirements/build-windows.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install --require-hashes -r requirements/dev-py312-windows.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install --no-deps --no-build-isolation -e .
+
+      - name: Run hermetic source checks
+        shell: pwsh
+        run: |
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/repository_hygiene.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m compileall src
+
+      - name: Build exact wheel and sdist from immutable Git snapshot
+        shell: pwsh
+        run: |
+          python tests/build_distributions.py `
+            --workspace $PWD `
+            --output-dir test_use/live_qualification_distribution/dist `
+            --work-dir test_use/live_qualification_distribution/work `
+            --python "${{ steps.python.outputs.python-path }}" `
+            --json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $wheel = @(Get-ChildItem test_use/live_qualification_distribution/dist/vivado_agent_mcp-*.whl)
+          if ($wheel.Count -ne 1) { throw "Expected exactly one exact wheel." }
+          $wheelSha256 = (Get-FileHash -Algorithm SHA256 $wheel[0].FullName).Hash.ToLowerInvariant()
+          Get-ChildItem test_use/live_qualification_distribution/dist -File |
+            Where-Object { $_.Name -match '\.(whl|tar\.gz)$' } |
+            ForEach-Object {
+              $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            } | Set-Content -Encoding ascii test_use/live_qualification_distribution/dist/SHA256SUMS
+          $evidenceRunId = [guid]::NewGuid().ToString("N")
+          "QUALIFICATION_WHEEL=$($wheel[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "QUALIFICATION_WHEEL_SHA256=$wheelSha256" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "QUALIFICATION_EVIDENCE_RUN_ID=$evidenceRunId" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Clean-install exact wheel and attest Vivado environment
+        shell: pwsh
+        run: |
+          python tests/clean_install_smoke.py `
+            --workspace $PWD `
+            --output-dir test_use/live_qualification_clean_install `
+            --python "${{ steps.python.outputs.python-path }}" `
+            --wheel-path "$env:QUALIFICATION_WHEEL" `
+            --expected-wheel-sha256 "$env:QUALIFICATION_WHEEL_SHA256" `
+            --runtime-lock requirements/runtime-py312-windows.txt `
+            --source-provenance-manifest test_use/live_qualification_distribution/dist/source-provenance.json `
+            --include-vivado-probe `
+            --probe-timeout-s 120 `
+            --evidence-run-id "$env:QUALIFICATION_EVIDENCE_RUN_ID" `
+            --json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $manifest = Get-ChildItem test_use/live_qualification_clean_install -Recurse -Filter clean_install_smoke_result.json |
+            Sort-Object LastWriteTimeUtc |
+            Select-Object -Last 1
+          if (-not $manifest) { throw "Clean-install release manifest was not produced." }
+          $cleanInstall = Get-Content -LiteralPath $manifest.FullName -Raw | ConvertFrom-Json
+          $scenarioPython = Join-Path $cleanInstall.run_dir "venv\Scripts\python.exe"
+          if (-not (Test-Path -LiteralPath $scenarioPython -PathType Leaf)) {
+            throw "Clean-install Python was not found."
+          }
+          "QUALIFICATION_RELEASE_MANIFEST=$($manifest.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "QUALIFICATION_SCENARIO_PYTHON=$scenarioPython" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run commit-bound live qualification
+        shell: pwsh
+        run: |
+          & "$env:QUALIFICATION_SCENARIO_PYTHON" tests/live_qualification_runner.py `
+            --workspace $PWD `
+            --output-dir test_use/live_qualification `
+            --python "$env:QUALIFICATION_SCENARIO_PYTHON" `
+            --release-wheel "$env:QUALIFICATION_WHEEL" `
+            --release-manifest "$env:QUALIFICATION_RELEASE_MANIFEST" `
+            --source-provenance-manifest test_use/live_qualification_distribution/dist/source-provenance.json `
+            --evidence-run-id "$env:QUALIFICATION_EVIDENCE_RUN_ID" `
+            --part "${{ inputs.part }}" `
+            --include-live-vivado `
+            --require-qualified `
+            --json
+
+      - name: Assert hardware status remains NOT_VALIDATED
+        shell: pwsh
+        run: |
+          $record = Get-ChildItem test_use/live_qualification -Recurse -Filter qualification-record.json |
+            Sort-Object LastWriteTimeUtc |
+            Select-Object -Last 1
+          if (-not $record) { throw "Qualification record was not produced." }
+          $payload = Get-Content -LiteralPath $record.FullName -Raw | ConvertFrom-Json
+          if ($payload.hardware_validation.status -ne "NOT_VALIDATED" -or $payload.hardware_validation.validated -ne $false) {
+            throw "Qualification record crossed the hardware validation boundary."
+          }
+          Write-Host "hardware status remains NOT_VALIDATED"
+
+      - name: Upload public-safe qualification records
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vivado-agent-mcp-live-qualification-${{ github.sha }}
+          path: |
+            test_use/live_qualification_distribution/dist/vivado_agent_mcp-*.whl
+            test_use/live_qualification_distribution/dist/vivado_agent_mcp-*.tar.gz
+            test_use/live_qualification_distribution/dist/SHA256SUMS
+            test_use/live_qualification/**/qualification-record.json
+            test_use/live_qualification/**/qualification-validation.json
+            test_use/live_qualification/**/qualification-matrix.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
