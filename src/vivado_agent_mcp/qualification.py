@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime
 from importlib import resources
@@ -12,6 +13,7 @@ from typing import Any
 
 QUALIFICATION_SCHEMA_VERSION = "1.0"
 QUALIFICATION_MATRIX_SCHEMA_VERSION = 1
+PUBLIC_EVIDENCE_SCHEMA_VERSION = 1
 QUALIFICATION_FIXTURE_ID = "minimal-counter-v1"
 
 QUALIFICATION_STATUSES = {"trusted", "qualified", "compatible", "unvalidated", "rejected"}
@@ -32,8 +34,43 @@ _REQUIRED_EVIDENCE = (
     "audit_result",
     "diagnostic_manifest",
 )
+_PUBLIC_EVIDENCE_FILENAMES = {name: f"{name}.json" for name in _REQUIRED_EVIDENCE}
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 _GIT_OBJECT_PATTERN = re.compile(r"[0-9a-f]{40,64}")
+_WINDOWS_ABSOLUTE_PATH_PATTERN = re.compile(r"(?i)[a-z]:[\\/]")
+_WINDOWS_UNC_PATH_PATTERN = re.compile(r"\\\\[^\\/\s]+[\\/]")
+_POSIX_USER_PATH_PATTERN = re.compile(r"(?i)/(?:home|users)/")
+_EMAIL_PATTERN = re.compile(r"(?i)\b[^\s@]+@[^\s@]+\.[^\s@]+\b")
+_LOCAL_IDENTITY_LABEL_PATTERN = re.compile(
+    r"(?i)\b(?:computer(?:_name)?|host(?:name)?|local_user|login|machine(?:_name)?|os_user|user(?:name)?)"
+    r"\s*[:=]\s*\S+"
+)
+_VMCP_ENCODED_PATH_PATTERN = re.compile(r"(?i)\bvmcp_hex_row_v1:(?:file|path)=")
+_LOCAL_IDENTITY_FIELD_NAMES = frozenset(
+    {
+        "computername",
+        "fileid",
+        "fileidentity",
+        "fileindex",
+        "host",
+        "hostname",
+        "inode",
+        "keyid",
+        "localuser",
+        "login",
+        "machine",
+        "machinename",
+        "osuser",
+        "owner",
+        "ownername",
+        "sourcefileid",
+        "trustanchorid",
+        "user",
+        "username",
+        "volumeid",
+        "volumeserial",
+    }
+)
 
 
 def qualification_record_schema() -> dict[str, Any]:
@@ -539,7 +576,12 @@ def update_qualification_matrix(matrix: dict[str, Any], record: dict[str, Any]) 
             "terminal_status": str(terminal.get("status", "")),
             "reason_code": str(terminal.get("reason_code", "")),
             "updated_at": str(record.get("generated_at", "")),
-            "notes": _matrix_status_notes(next_status, record_id=record_id, source_commit=source_commit),
+            "notes": _matrix_status_notes(
+                next_status,
+                trust_status=str(target.get("trust_status", "unvalidated")),
+                record_id=record_id,
+                source_commit=source_commit,
+            ),
         }
     )
     updated["entries"] = sorted(
@@ -553,6 +595,169 @@ def update_qualification_matrix(matrix: dict[str, Any], record: dict[str, Any]) 
         "reason_code": "QUALIFICATION_MATRIX_UPDATED",
         "reason_codes": [],
         "matrix": updated,
+    }
+
+
+def write_public_qualification_evidence(
+    raw_evidence_paths: Mapping[str, str | Path],
+    output_dir: str | Path,
+    *,
+    source_commit: str,
+    hardware_validation: dict[str, Any],
+) -> dict[str, Any]:
+    if set(raw_evidence_paths) != set(_REQUIRED_EVIDENCE):
+        return _public_evidence_failure("PUBLIC_EVIDENCE_SET_INVALID")
+    if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        return _public_evidence_failure("PUBLIC_EVIDENCE_SOURCE_COMMIT_INVALID")
+    if not _hardware_not_validated(hardware_validation):
+        return _public_evidence_failure("PUBLIC_EVIDENCE_HARDWARE_BOUNDARY_INVALID")
+
+    destination = Path(output_dir).expanduser().resolve()
+    if destination.is_symlink() or (destination.exists() and (not destination.is_dir() or any(destination.iterdir()))):
+        return _public_evidence_failure("PUBLIC_EVIDENCE_DESTINATION_NOT_EMPTY")
+
+    prepared: dict[str, bytes] = {}
+    for name in _REQUIRED_EVIDENCE:
+        path = Path(raw_evidence_paths[name]).expanduser().resolve()
+        try:
+            if not path.is_file() or path.is_symlink():
+                raise ValueError("evidence is not a regular file")
+            raw = path.read_bytes()
+            if not raw or len(raw) > 16 * 1024 * 1024:
+                raise ValueError("evidence size is outside the public snapshot limit")
+            document = json.loads(raw.decode("utf-8"))
+            if not isinstance(document, dict):
+                raise ValueError("evidence JSON root must be an object")
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            return _public_evidence_failure(
+                "PUBLIC_EVIDENCE_SOURCE_INVALID",
+                evidence_type=name,
+                detail=str(exc),
+            )
+        public_document = {
+            "schema_version": PUBLIC_EVIDENCE_SCHEMA_VERSION,
+            "evidence_type": name,
+            "source_commit": source_commit,
+            "raw_evidence": {
+                "size": len(raw),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+            },
+            "summary": _redact_public_evidence(document),
+            "hardware_validation": deepcopy(hardware_validation),
+        }
+        issues = _public_evidence_document_issues(
+            public_document,
+            expected_type=name,
+            expected_commit=source_commit,
+            expected_hardware=hardware_validation,
+        )
+        if issues:
+            return _public_evidence_failure(
+                "PUBLIC_EVIDENCE_REDACTION_FAILED",
+                evidence_type=name,
+                detail=", ".join(issues),
+            )
+        prepared[name] = json.dumps(public_document, ensure_ascii=False, indent=2).encode("utf-8") + b"\n"
+
+    destination.mkdir(parents=True, exist_ok=True)
+    entries: dict[str, dict[str, Any]] = {}
+    paths: dict[str, str] = {}
+    for name in _REQUIRED_EVIDENCE:
+        payload = prepared[name]
+        path = destination / _PUBLIC_EVIDENCE_FILENAMES[name]
+        path.write_bytes(payload)
+        entries[name] = {"size": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+        paths[name] = str(path)
+    normalized = hashlib.sha256(_canonical_json({"evidence": entries})).hexdigest()
+    return {
+        "ok": True,
+        "status": "READY",
+        "reason_code": "PUBLIC_EVIDENCE_READY",
+        "evidence": {
+            "freshness": "FRESH",
+            "normalized_evidence_sha256": normalized,
+            **entries,
+        },
+        "paths": paths,
+    }
+
+
+def validate_published_qualification_bundle(record_path: str | Path) -> dict[str, Any]:
+    path = Path(record_path).expanduser().resolve()
+    issues: list[str] = []
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "status": "BLOCK",
+            "reason_code": "PUBLIC_QUALIFICATION_RECORD_UNREADABLE",
+            "issues": [str(exc)],
+        }
+    if not isinstance(record, dict):
+        return {
+            "ok": False,
+            "status": "BLOCK",
+            "reason_code": "PUBLIC_QUALIFICATION_RECORD_INVALID",
+            "issues": ["record root must be an object"],
+        }
+    record_validation = validate_qualification_record(record)
+    if not record_validation["ok"]:
+        issues.extend(record_validation["reason_codes"])
+
+    evidence_dir = path.parent / "public-evidence"
+    expected_names = set(_PUBLIC_EVIDENCE_FILENAMES.values())
+    actual_items = list(evidence_dir.iterdir()) if evidence_dir.is_dir() and not evidence_dir.is_symlink() else []
+    actual_names = {item.name for item in actual_items}
+    if (
+        evidence_dir.is_symlink()
+        or actual_names != expected_names
+        or any(not item.is_file() or item.is_symlink() for item in actual_items)
+    ):
+        issues.append("PUBLIC_EVIDENCE_FILE_SET_INVALID")
+
+    actual_entries: dict[str, dict[str, Any]] = {}
+    source_commit = str(_mapping(record.get("source")).get("commit", ""))
+    hardware = _mapping(record.get("hardware_validation"))
+    record_evidence = _mapping(record.get("evidence"))
+    for name in _REQUIRED_EVIDENCE:
+        evidence_path = evidence_dir / _PUBLIC_EVIDENCE_FILENAMES[name]
+        try:
+            if not evidence_path.is_file() or evidence_path.is_symlink():
+                raise ValueError("public evidence file is missing or not regular")
+            payload = evidence_path.read_bytes()
+            document = json.loads(payload.decode("utf-8"))
+            if not isinstance(document, dict):
+                raise ValueError("public evidence root must be an object")
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            issues.append(f"PUBLIC_EVIDENCE_FILE_INVALID:{name}:{exc}")
+            continue
+        issues.extend(
+            _public_evidence_document_issues(
+                document,
+                expected_type=name,
+                expected_commit=source_commit,
+                expected_hardware=hardware,
+            )
+        )
+        entry = {"size": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+        actual_entries[name] = entry
+        if _mapping(record_evidence.get(name)) != entry:
+            issues.append(f"PUBLIC_EVIDENCE_DIGEST_MISMATCH:{name}")
+
+    normalized = hashlib.sha256(_canonical_json({"evidence": actual_entries})).hexdigest()
+    if record_evidence.get("normalized_evidence_sha256") != normalized:
+        issues.append("PUBLIC_EVIDENCE_NORMALIZED_DIGEST_MISMATCH")
+    return {
+        "ok": not issues,
+        "status": "READY" if not issues else "BLOCK",
+        "reason_code": "PUBLIC_QUALIFICATION_BUNDLE_READY" if not issues else "PUBLIC_QUALIFICATION_BUNDLE_INVALID",
+        "record_id": str(record.get("record_id", "")),
+        "source_commit": source_commit,
+        "evidence_dir": "public-evidence",
+        "evidence": actual_entries,
+        "issues": issues,
+        "hardware_validation": hardware,
     }
 
 
@@ -820,18 +1025,185 @@ def _matrix_transition_allowed(current: str, next_status: str) -> bool:
     return next_status in transitions.get(current, set())
 
 
-def _matrix_status_notes(status: str, *, record_id: str, source_commit: str) -> list[str]:
+def _matrix_status_notes(
+    status: str,
+    *,
+    trust_status: str,
+    record_id: str,
+    source_commit: str,
+) -> list[str]:
     identity = f"record {record_id} for source commit {source_commit}"
     hardware_note = "Qualification is limited to the no-board Project Mode software flow; FPGA/JTAG hardware remains NOT_VALIDATED."
+    trust_note = f"Execution policy is represented independently by trust_status={trust_status}."
     if status == "qualified":
-        return [f"Qualified by reviewed commit-bound {identity}.", hardware_note]
+        return [f"Qualified by reviewed commit-bound {identity}.", trust_note, hardware_note]
     if status == "compatible":
-        return [f"Compatibility is supported by reviewed {identity}; it is not a trusted-version qualification.", hardware_note]
+        return [f"Compatibility is supported by reviewed {identity}; it does not change execution trust.", trust_note, hardware_note]
     if status == "trusted":
-        return [f"Execution policy trusts this version through {identity}, but the full live qualification gate is incomplete.", hardware_note]
+        return [f"The reviewed {identity} has qualification_status=trusted; it is not a completed live qualification.", trust_note, hardware_note]
     if status == "rejected":
-        return [f"Rejected by reviewed {identity}; execution remains fail-closed.", hardware_note]
-    return [f"Unvalidated record {record_id} is attached for source commit {source_commit}; it does not establish qualification.", hardware_note]
+        return [f"Rejected by reviewed {identity}; qualification was not granted.", trust_note, hardware_note]
+    return [
+        f"Unvalidated record {record_id} is attached for source commit {source_commit}; it does not establish qualification.",
+        trust_note,
+        hardware_note,
+    ]
+
+
+def _public_evidence_failure(reason_code: str, **data: Any) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": "BLOCK",
+        "reason_code": reason_code,
+        **data,
+    }
+
+
+def _hardware_not_validated(value: dict[str, Any]) -> bool:
+    return value.get("status") == "NOT_VALIDATED" and value.get("validated") is False
+
+
+def _drop_public_evidence_key(key: str) -> bool:
+    normalized = key.lower()
+    return (
+        _is_local_identity_field(key)
+        or normalized
+        in {
+            "command",
+            "commands",
+            "cwd",
+            "raw",
+            "stderr",
+            "stdout",
+            "workspace",
+        }
+        or normalized.startswith("raw_")
+        or normalized.endswith("_raw")
+        or normalized.endswith(("_path", "_paths", "_dir", "_directory", "_root"))
+        or normalized in {"path", "paths", "directory", "directories"}
+    )
+
+
+def _is_local_identity_field(key: str) -> bool:
+    compact = re.sub(r"[^a-z0-9]", "", key.lower())
+    return compact in _LOCAL_IDENTITY_FIELD_NAMES
+
+
+def _redact_public_evidence(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _redact_public_evidence(item)
+            for key, item in value.items()
+            if not _drop_public_evidence_key(str(key))
+        }
+    if isinstance(value, list):
+        return [_redact_public_evidence(item) for item in value]
+    if isinstance(value, str):
+        if (
+            _WINDOWS_ABSOLUTE_PATH_PATTERN.search(value)
+            or _WINDOWS_UNC_PATH_PATTERN.search(value)
+            or _POSIX_USER_PATH_PATTERN.search(value)
+            or _EMAIL_PATTERN.search(value)
+            or _LOCAL_IDENTITY_LABEL_PATTERN.search(value)
+            or _VMCP_ENCODED_PATH_PATTERN.search(value)
+        ):
+            return "<redacted-local-identity>"
+    return value
+
+
+def _public_evidence_document_issues(
+    document: dict[str, Any],
+    *,
+    expected_type: str,
+    expected_commit: str,
+    expected_hardware: dict[str, Any],
+) -> list[str]:
+    issues: list[str] = []
+    expected_keys = {
+        "schema_version",
+        "evidence_type",
+        "source_commit",
+        "raw_evidence",
+        "summary",
+        "hardware_validation",
+    }
+    if set(document) != expected_keys:
+        issues.append(f"PUBLIC_EVIDENCE_SCHEMA_KEYS_INVALID:{expected_type}")
+    if document.get("schema_version") != PUBLIC_EVIDENCE_SCHEMA_VERSION:
+        issues.append(f"PUBLIC_EVIDENCE_SCHEMA_VERSION_INVALID:{expected_type}")
+    if document.get("evidence_type") != expected_type:
+        issues.append(f"PUBLIC_EVIDENCE_TYPE_MISMATCH:{expected_type}")
+    if document.get("source_commit") != expected_commit:
+        issues.append(f"PUBLIC_EVIDENCE_COMMIT_MISMATCH:{expected_type}")
+    raw = _mapping(document.get("raw_evidence"))
+    if set(raw) != {"size", "sha256"} or not _valid_evidence_entry(raw):
+        issues.append(f"PUBLIC_EVIDENCE_RAW_IDENTITY_INVALID:{expected_type}")
+    if not isinstance(document.get("summary"), dict):
+        issues.append(f"PUBLIC_EVIDENCE_SUMMARY_INVALID:{expected_type}")
+    if _mapping(document.get("hardware_validation")) != expected_hardware or not _hardware_not_validated(expected_hardware):
+        issues.append(f"PUBLIC_EVIDENCE_HARDWARE_BOUNDARY_INVALID:{expected_type}")
+    issues.extend(_public_hardware_boundary_issues(document.get("summary"), evidence_type=expected_type))
+    issues.extend(_public_local_identity_issues(document.get("summary"), evidence_type=expected_type))
+    serialized = json.dumps(document, ensure_ascii=False, sort_keys=True)
+    if (
+        _WINDOWS_ABSOLUTE_PATH_PATTERN.search(serialized)
+        or _WINDOWS_UNC_PATH_PATTERN.search(serialized)
+        or _POSIX_USER_PATH_PATTERN.search(serialized)
+        or _EMAIL_PATTERN.search(serialized)
+        or _LOCAL_IDENTITY_LABEL_PATTERN.search(serialized)
+        or _VMCP_ENCODED_PATH_PATTERN.search(serialized)
+    ):
+        issues.append(f"PUBLIC_EVIDENCE_LOCAL_IDENTITY_LEAK:{expected_type}")
+    return issues
+
+
+def _public_hardware_boundary_issues(value: Any, *, evidence_type: str) -> list[str]:
+    issues: list[str] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+            if normalized == "hardwarevalidation":
+                if isinstance(item, dict):
+                    boundary = {
+                        re.sub(r"[^a-z0-9]", "", str(boundary_key).lower()): boundary_value
+                        for boundary_key, boundary_value in item.items()
+                    }
+                    if boundary and ({"status", "validated"} & set(boundary)) and not _hardware_not_validated(boundary):
+                        issues.append(f"PUBLIC_EVIDENCE_NESTED_HARDWARE_BOUNDARY_INVALID:{evidence_type}")
+                elif item is not None and item != "" and item != "NOT_VALIDATED":
+                    issues.append(f"PUBLIC_EVIDENCE_NESTED_HARDWARE_BOUNDARY_INVALID:{evidence_type}")
+            elif (
+                normalized in {"hardwarestatus", "hardwarevalidationstatus"}
+                and item is not None
+                and item != ""
+                and item != "NOT_VALIDATED"
+            ):
+                issues.append(f"PUBLIC_EVIDENCE_NESTED_HARDWARE_STATUS_INVALID:{evidence_type}")
+            elif (
+                normalized in {"hardwarevalidated", "hardwarevalidationvalidated"}
+                and item is not None
+                and item != ""
+                and item is not False
+            ):
+                issues.append(f"PUBLIC_EVIDENCE_NESTED_HARDWARE_VALIDATED_INVALID:{evidence_type}")
+            issues.extend(_public_hardware_boundary_issues(item, evidence_type=evidence_type))
+    elif isinstance(value, list):
+        for item in value:
+            issues.extend(_public_hardware_boundary_issues(item, evidence_type=evidence_type))
+    return sorted(set(issues))
+
+
+def _public_local_identity_issues(value: Any, *, evidence_type: str) -> list[str]:
+    issues: list[str] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if _is_local_identity_field(str(key)):
+                issues.append(f"PUBLIC_EVIDENCE_LOCAL_IDENTITY_FIELD:{evidence_type}:{key}")
+            issues.extend(_public_local_identity_issues(item, evidence_type=evidence_type))
+    elif isinstance(value, list):
+        for item in value:
+            issues.extend(_public_local_identity_issues(item, evidence_type=evidence_type))
+    return sorted(set(issues))
 
 
 def _record_digest(record: dict[str, Any]) -> str:

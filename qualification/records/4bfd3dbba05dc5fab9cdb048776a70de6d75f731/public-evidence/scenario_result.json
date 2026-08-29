@@ -1,0 +1,1700 @@
+{
+  "schema_version": 1,
+  "evidence_type": "scenario_result",
+  "source_commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+  "raw_evidence": {
+    "size": 78312,
+    "sha256": "0caea5abdb3a2cb3647105ee1db9cdaef8671153661352178334f722af8b5c2a"
+  },
+  "summary": {
+    "ok": true,
+    "passed": true,
+    "watch": false,
+    "blocked": false,
+    "skipped_live": false,
+    "started_at": "2026-08-29T19:26:36.449167+00:00",
+    "ended_at": "2026-08-29T19:31:53.107432+00:00",
+    "scenario_count": 1,
+    "scenario_results": [
+      {
+        "id": "S01",
+        "label": "Minimal counter Project Mode closure",
+        "status": "PASS",
+        "executed": true,
+        "vivado_environment": {
+          "identity_status": "VERIFIED",
+          "canonical_path_sha256": "9661fc8ccb09c107e5b163189ef54a7f787500e4800af8d73b50b469b66c2415",
+          "executable_sha256": "5d97b4c31ca191ca304da1d466857a65470c21ec6e9718f47537a49da40634f7",
+          "version": "2021.2",
+          "full_version": "Vivado v2021.2 (64-bit)",
+          "build": "SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 | IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021",
+          "version_attested": true
+        },
+        "qualification_fixture": {
+          "id": "minimal-counter-v1",
+          "aggregate_sha256": "5f330bba81e8b4032e678cfc66d8505c884cf569c4656d6b25a0e65339967df3",
+          "files": [
+            {
+              "size": 295,
+              "sha256": "2ae6a7893b4f6f2e1566a341128daac14c6c9439cdbf70a10b8b27c9295c2d90"
+            },
+            {
+              "size": 950,
+              "sha256": "d32aac6cd28a39426c0d0bf525184944ae11c2457baedfc3ea17671e2bb2ab13"
+            },
+            {
+              "size": 607,
+              "sha256": "afee90c3fb9b11d2869588b0ba6313d9d867abf3682347718a1cd628e187939b"
+            }
+          ]
+        },
+        "tool_count": 41,
+        "tool_definition_count": 41,
+        "tool_call_count": 37,
+        "execution_mode": "mcp_stdio_live_project",
+        "evidence_class": "live_project_software_flow",
+        "full_scenario_coverage": true,
+        "requires_flag": "--include-live-vivado",
+        "tool_count_note": "tool_definition_count is MCP server tool definitions; tool_call_count is runner-visible MCP calls.",
+        "tool_calls": [
+          {
+            "seq": 1,
+            "tool": "get_tool_catalog",
+            "started_at": "2026-08-29T19:26:37.020692+00:00",
+            "ended_at": "2026-08-29T19:26:37.031693+00:00",
+            "duration_s": 0.016,
+            "ok": true,
+            "error_code": "",
+            "message": "Vivado Agent MCP tool catalog collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 2,
+            "tool": "get_agent_workflows",
+            "started_at": "2026-08-29T19:26:37.031693+00:00",
+            "ended_at": "2026-08-29T19:26:37.047699+00:00",
+            "duration_s": 0.015,
+            "ok": true,
+            "error_code": "",
+            "message": "Vivado Agent MCP workflow recipes collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 3,
+            "tool": "get_agent_scenarios",
+            "started_at": "2026-08-29T19:26:37.047699+00:00",
+            "ended_at": "2026-08-29T19:26:37.060566+00:00",
+            "duration_s": 0.016,
+            "ok": true,
+            "error_code": "",
+            "message": "Vivado Agent MCP validation scenarios collected.",
+            "status": "",
+            "next_actions": [
+              {
+                "tool": "get_tool_catalog",
+                "reason": "Confirm required scenario tools are still registered before running a Subagent validation.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [],
+                "stop_condition": "Tool catalog is available and hardware boundary remains NOT_VALIDATED.",
+                "optional": true
+              },
+              {
+                "tool": "get_agent_workflows",
+                "reason": "Read the workflow recipe referenced by the selected scenario before executing project steps.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [
+                  "Selected scenario has a non-empty workflow_id."
+                ],
+                "stop_condition": "Workflow steps, parameter sources, and stop conditions are understood.",
+                "optional": true
+              }
+            ],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 4,
+            "tool": "detect_vivado_environment",
+            "started_at": "2026-08-29T19:26:37.060566+00:00",
+            "ended_at": "2026-08-29T19:26:38.124635+00:00",
+            "duration_s": 1.062,
+            "ok": true,
+            "error_code": "",
+            "message": "Vivado environment detected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 5,
+            "tool": "start_session",
+            "started_at": "2026-08-29T19:26:38.125638+00:00",
+            "ended_at": "2026-08-29T19:26:45.742731+00:00",
+            "duration_s": 7.625,
+            "ok": true,
+            "error_code": "",
+            "message": "Vivado GUI session started.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 6,
+            "tool": "create_project",
+            "started_at": "2026-08-29T19:26:45.742731+00:00",
+            "ended_at": "2026-08-29T19:26:56.185965+00:00",
+            "duration_s": 10.438,
+            "ok": true,
+            "error_code": "",
+            "message": "Vivado project created. SystemVerilog .sv files use file_type=SystemVerilog while project target_language remains Verilog.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 7,
+            "tool": "repair_project_setup",
+            "started_at": "2026-08-29T19:26:56.185965+00:00",
+            "ended_at": "2026-08-29T19:26:56.215092+00:00",
+            "duration_s": 0.031,
+            "ok": true,
+            "error_code": "",
+            "message": "Project setup repair dry-run planned.",
+            "status": "DRY_RUN",
+            "next_actions": [
+              {
+                "tool": "check_syntax",
+                "reason": "Verify source files after Project Mode setup repair.",
+                "required_args": [
+                  "fileset"
+                ],
+                "arg_sources": {
+                  "fileset": "sources_1"
+                },
+                "preconditions": [
+                  "repair_project_setup returned READY or REPAIRED."
+                ],
+                "stop_condition": "check_syntax returns READY or structured syntax findings.",
+                "optional": false
+              },
+              {
+                "tool": "get_compile_order",
+                "reason": "Inspect compile order after setup repair.",
+                "required_args": [
+                  "fileset"
+                ],
+                "arg_sources": {
+                  "fileset": "sources_1 or sim_1"
+                },
+                "preconditions": [
+                  "repair_project_setup returned READY or REPAIRED."
+                ],
+                "stop_condition": "get_compile_order returns missing/duplicate/type diagnostics.",
+                "optional": true
+              },
+              {
+                "tool": "run_behavioral_simulation",
+                "reason": "Run finite behavioral simulation after sim_1 has been repaired.",
+                "required_args": [
+                  "simset"
+                ],
+                "arg_sources": {
+                  "simset": "sim_1"
+                },
+                "preconditions": [
+                  "sim_1 contains the testbench and testbench_top is set."
+                ],
+                "stop_condition": "run_behavioral_simulation returns completed or structured simulation findings.",
+                "optional": true
+              }
+            ],
+            "hardware_validation_status": "",
+            "data_summary": {
+              "status": "DRY_RUN"
+            }
+          },
+          {
+            "seq": 8,
+            "tool": "repair_project_setup",
+            "started_at": "2026-08-29T19:26:56.215092+00:00",
+            "ended_at": "2026-08-29T19:27:04.730052+00:00",
+            "duration_s": 8.516,
+            "ok": true,
+            "error_code": "",
+            "message": "Project setup repair READY.",
+            "status": "REPAIRED",
+            "next_actions": [
+              {
+                "tool": "check_syntax",
+                "reason": "Verify source files after Project Mode setup repair.",
+                "required_args": [
+                  "fileset"
+                ],
+                "arg_sources": {
+                  "fileset": "sources_1"
+                },
+                "preconditions": [
+                  "repair_project_setup returned READY or REPAIRED."
+                ],
+                "stop_condition": "check_syntax returns READY or structured syntax findings.",
+                "optional": false
+              },
+              {
+                "tool": "get_compile_order",
+                "reason": "Inspect compile order after setup repair.",
+                "required_args": [
+                  "fileset"
+                ],
+                "arg_sources": {
+                  "fileset": "sources_1 or sim_1"
+                },
+                "preconditions": [
+                  "repair_project_setup returned READY or REPAIRED."
+                ],
+                "stop_condition": "get_compile_order returns missing/duplicate/type diagnostics.",
+                "optional": true
+              },
+              {
+                "tool": "run_behavioral_simulation",
+                "reason": "Run finite behavioral simulation after sim_1 has been repaired.",
+                "required_args": [
+                  "simset"
+                ],
+                "arg_sources": {
+                  "simset": "sim_1"
+                },
+                "preconditions": [
+                  "sim_1 contains the testbench and testbench_top is set."
+                ],
+                "stop_condition": "run_behavioral_simulation returns completed or structured simulation findings.",
+                "optional": true
+              }
+            ],
+            "hardware_validation_status": "",
+            "data_summary": {
+              "status": "REPAIRED"
+            }
+          },
+          {
+            "seq": 9,
+            "tool": "list_fileset_files",
+            "started_at": "2026-08-29T19:27:04.730052+00:00",
+            "ended_at": "2026-08-29T19:27:04.865816+00:00",
+            "duration_s": 0.14,
+            "ok": true,
+            "error_code": "",
+            "message": "Fileset sources_1 files listed.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 10,
+            "tool": "list_fileset_files",
+            "started_at": "2026-08-29T19:27:04.865816+00:00",
+            "ended_at": "2026-08-29T19:27:04.991787+00:00",
+            "duration_s": 0.125,
+            "ok": true,
+            "error_code": "",
+            "message": "Fileset sim_1 files listed.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 11,
+            "tool": "get_compile_order",
+            "started_at": "2026-08-29T19:27:04.991787+00:00",
+            "ended_at": "2026-08-29T19:27:05.276634+00:00",
+            "duration_s": 0.282,
+            "ok": true,
+            "error_code": "",
+            "message": "Compile order status: READY.",
+            "status": "READY",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {
+              "status": "READY"
+            }
+          },
+          {
+            "seq": 12,
+            "tool": "get_compile_order",
+            "started_at": "2026-08-29T19:27:05.276634+00:00",
+            "ended_at": "2026-08-29T19:27:06.798711+00:00",
+            "duration_s": 1.515,
+            "ok": true,
+            "error_code": "",
+            "message": "Compile order status: READY.",
+            "status": "READY",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {
+              "status": "READY"
+            }
+          },
+          {
+            "seq": 13,
+            "tool": "check_syntax",
+            "started_at": "2026-08-29T19:27:06.798711+00:00",
+            "ended_at": "2026-08-29T19:27:08.075922+00:00",
+            "duration_s": 1.281,
+            "ok": true,
+            "error_code": "",
+            "message": "Syntax check status: READY.",
+            "status": "READY",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {
+              "status": "READY"
+            }
+          },
+          {
+            "seq": 14,
+            "tool": "run_behavioral_simulation",
+            "started_at": "2026-08-29T19:27:08.076463+00:00",
+            "ended_at": "2026-08-29T19:27:43.118644+00:00",
+            "duration_s": 35.047,
+            "ok": true,
+            "error_code": "",
+            "message": "Behavioral simulation completed.",
+            "status": "completed",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {
+              "export_vcd_requested": false,
+              "mcp_vcd_export_mode": "disabled",
+              "simulation_invocation_id": "sim_5738f348b2b44acea76583c24304057c",
+              "status": "completed",
+              "status_source": "simulation_invocation_log_span",
+              "testbench_vcd_detected": false,
+              "testbench_vcd_usage": false,
+              "vcd_conflict": false,
+              "vcd_conflict_severity": "",
+              "simulation_diagnosis": {
+                "primary_cause": "testbench_pass",
+                "warnings": []
+              },
+              "artifacts": {
+                "vcd_total_bytes": 0,
+                "largest_vcd_file": {
+                  "size_bytes": 0
+                },
+                "wdb_files": [
+                  {
+                    "size_bytes": 15930
+                  }
+                ],
+                "vcd_files": []
+              }
+            }
+          },
+          {
+            "seq": 15,
+            "tool": "run_synthesis",
+            "started_at": "2026-08-29T19:27:43.118644+00:00",
+            "ended_at": "2026-08-29T19:27:53.173576+00:00",
+            "duration_s": 10.047,
+            "ok": true,
+            "error_code": "",
+            "message": "Synthesis run launched.",
+            "status": "",
+            "next_actions": [
+              {
+                "tool": "get_run_progress",
+                "reason": "Poll the Vivado run until it reaches a terminal state.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "current launched run synth_1",
+                  "expect_bitstream": "set true when polling generate_bitstream or final implementation bitstream output"
+                },
+                "preconditions": [
+                  "launch_runs returned ok=true."
+                ],
+                "stop_condition": "get_run_progress.data.terminal is true or workflow max_wait_s is exceeded.",
+                "optional": false
+              }
+            ],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 16,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:27:53.173576+00:00",
+            "ended_at": "2026-08-29T19:27:53.248343+00:00",
+            "duration_s": 0.078,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 17,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:28:03.260847+00:00",
+            "ended_at": "2026-08-29T19:28:03.330436+00:00",
+            "duration_s": 0.062,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 18,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:28:13.337978+00:00",
+            "ended_at": "2026-08-29T19:28:13.395316+00:00",
+            "duration_s": 0.047,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 19,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:28:23.395491+00:00",
+            "ended_at": "2026-08-29T19:28:24.166459+00:00",
+            "duration_s": 0.781,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 20,
+            "tool": "run_implementation",
+            "started_at": "2026-08-29T19:28:24.166459+00:00",
+            "ended_at": "2026-08-29T19:28:26.554687+00:00",
+            "duration_s": 2.391,
+            "ok": true,
+            "error_code": "",
+            "message": "Implementation run launched.",
+            "status": "",
+            "next_actions": [
+              {
+                "tool": "get_run_progress",
+                "reason": "Poll the Vivado run until it reaches a terminal state.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "current launched run impl_1",
+                  "expect_bitstream": "set true when polling generate_bitstream or final implementation bitstream output"
+                },
+                "preconditions": [
+                  "launch_runs returned ok=true."
+                ],
+                "stop_condition": "get_run_progress.data.terminal is true or workflow max_wait_s is exceeded.",
+                "optional": false
+              }
+            ],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 21,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:28:26.554687+00:00",
+            "ended_at": "2026-08-29T19:28:26.626567+00:00",
+            "duration_s": 0.062,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 22,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:28:36.639044+00:00",
+            "ended_at": "2026-08-29T19:28:36.702842+00:00",
+            "duration_s": 0.062,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 23,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:28:46.712382+00:00",
+            "ended_at": "2026-08-29T19:28:46.773669+00:00",
+            "duration_s": 0.063,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 24,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:28:56.781355+00:00",
+            "ended_at": "2026-08-29T19:28:56.844891+00:00",
+            "duration_s": 0.062,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 25,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:29:06.859508+00:00",
+            "ended_at": "2026-08-29T19:29:07.624301+00:00",
+            "duration_s": 0.765,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 26,
+            "tool": "generate_bitstream",
+            "started_at": "2026-08-29T19:29:07.624301+00:00",
+            "ended_at": "2026-08-29T19:29:10.060123+00:00",
+            "duration_s": 2.438,
+            "ok": true,
+            "error_code": "",
+            "message": "Bitstream run launched.",
+            "status": "",
+            "next_actions": [
+              {
+                "tool": "get_run_progress",
+                "reason": "Poll the Vivado run until it reaches a terminal state.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "current launched run impl_1",
+                  "expect_bitstream": "set true when polling generate_bitstream or final implementation bitstream output"
+                },
+                "preconditions": [
+                  "launch_runs returned ok=true."
+                ],
+                "stop_condition": "get_run_progress.data.terminal is true or workflow max_wait_s is exceeded.",
+                "optional": false
+              }
+            ],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 27,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:29:10.060123+00:00",
+            "ended_at": "2026-08-29T19:29:10.118548+00:00",
+            "duration_s": 0.062,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 28,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:29:20.133313+00:00",
+            "ended_at": "2026-08-29T19:29:20.196518+00:00",
+            "duration_s": 0.062,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 29,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:29:30.210215+00:00",
+            "ended_at": "2026-08-29T19:29:30.274399+00:00",
+            "duration_s": 0.063,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 30,
+            "tool": "get_run_progress",
+            "started_at": "2026-08-29T19:29:40.279610+00:00",
+            "ended_at": "2026-08-29T19:29:41.106234+00:00",
+            "duration_s": 0.828,
+            "ok": true,
+            "error_code": "",
+            "message": "Run progress collected.",
+            "status": "",
+            "next_actions": [
+              {
+                "tool": "collect_build_artifacts",
+                "reason": "Collect bitstream and related generated artifacts into vmcp_artifacts.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "completed run impl_1"
+                },
+                "preconditions": [
+                  "get_run_progress returned complete and bitstream_exists=true."
+                ],
+                "stop_condition": "collect_build_artifacts returns manifest_path with bitstream evidence.",
+                "optional": false
+              },
+              {
+                "tool": "collect_report_bundle",
+                "reason": "Collect timing, utilization, DRC, methodology, QoR, CDC, clock interaction, and power reports.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "completed run impl_1"
+                },
+                "preconditions": [
+                  "Implementation run is complete."
+                ],
+                "stop_condition": "collect_report_bundle returns report_manifest.json.",
+                "optional": false
+              },
+              {
+                "tool": "run_pre_hw_signoff",
+                "reason": "Evaluate no-board pre-hardware software signoff before handoff.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "completed run impl_1"
+                },
+                "preconditions": [
+                  "Reports can be generated from the completed implementation run."
+                ],
+                "stop_condition": "run_pre_hw_signoff returns READY, WARN, or BLOCK with findings.",
+                "optional": false
+              },
+              {
+                "tool": "run_project_audit",
+                "reason": "Aggregate project readiness, manifests, waivers, and signoff into audit evidence.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "completed run impl_1"
+                },
+                "preconditions": [
+                  "Artifact and report collection have been attempted."
+                ],
+                "stop_condition": "run_project_audit returns READY, WARN, or BLOCK with active findings.",
+                "optional": false
+              },
+              {
+                "tool": "collect_diagnostic_bundle",
+                "reason": "Create a project-local diagnostic reference index, including workflow trace.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "completed run impl_1"
+                },
+                "preconditions": [
+                  "Project audit and signoff evidence are available."
+                ],
+                "stop_condition": "collect_diagnostic_bundle returns manifest_path.",
+                "optional": false
+              },
+              {
+                "tool": "validate_diagnostic_bundle",
+                "reason": "Validate diagnostic reference integrity and reviewability before project-local handoff review.",
+                "required_args": [
+                  "manifest_path"
+                ],
+                "arg_sources": {},
+                "preconditions": [
+                  "Diagnostic bundle manifest exists."
+                ],
+                "stop_condition": "validate_diagnostic_bundle returns reviewable WARN without claiming portable handoff readiness.",
+                "optional": false
+              }
+            ],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          },
+          {
+            "seq": 31,
+            "tool": "collect_build_artifacts",
+            "started_at": "2026-08-29T19:29:41.107640+00:00",
+            "ended_at": "2026-08-29T19:29:43.444473+00:00",
+            "duration_s": 2.343,
+            "ok": true,
+            "error_code": "",
+            "message": "Collected 37 build artifact(s).",
+            "status": "READY",
+            "next_actions": [
+              {
+                "tool": "collect_report_bundle",
+                "reason": "Collect reports after artifact collection; a bitstream alone is not a complete Agent handoff.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "artifact manifest run impl_1"
+                },
+                "preconditions": [
+                  "collect_build_artifacts returned ok=true."
+                ],
+                "stop_condition": "collect_report_bundle returns report_manifest.json.",
+                "optional": false
+              },
+              {
+                "tool": "run_pre_hw_signoff",
+                "reason": "Evaluate no-board pre-hardware software signoff before handoff.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "completed run impl_1"
+                },
+                "preconditions": [
+                  "Reports can be generated from the completed implementation run."
+                ],
+                "stop_condition": "run_pre_hw_signoff returns READY, WARN, or BLOCK with findings.",
+                "optional": false
+              },
+              {
+                "tool": "run_project_audit",
+                "reason": "Aggregate project readiness, manifests, waivers, and signoff into audit evidence.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "completed run impl_1"
+                },
+                "preconditions": [
+                  "Artifact and report collection have been attempted."
+                ],
+                "stop_condition": "run_project_audit returns READY, WARN, or BLOCK with active findings.",
+                "optional": false
+              },
+              {
+                "tool": "collect_diagnostic_bundle",
+                "reason": "Create a project-local diagnostic reference index, including workflow trace.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "completed run impl_1"
+                },
+                "preconditions": [
+                  "Project audit and signoff evidence are available."
+                ],
+                "stop_condition": "collect_diagnostic_bundle returns manifest_path.",
+                "optional": false
+              },
+              {
+                "tool": "validate_diagnostic_bundle",
+                "reason": "Validate diagnostic reference integrity and reviewability before project-local handoff review.",
+                "required_args": [
+                  "manifest_path"
+                ],
+                "arg_sources": {},
+                "preconditions": [
+                  "Diagnostic bundle manifest exists."
+                ],
+                "stop_condition": "validate_diagnostic_bundle returns reviewable WARN without claiming portable handoff readiness.",
+                "optional": false
+              }
+            ],
+            "hardware_validation_status": "",
+            "data_summary": {
+              "status": "READY"
+            }
+          },
+          {
+            "seq": 32,
+            "tool": "collect_report_bundle",
+            "started_at": "2026-08-29T19:29:43.445479+00:00",
+            "ended_at": "2026-08-29T19:29:56.718858+00:00",
+            "duration_s": 13.266,
+            "ok": true,
+            "error_code": "",
+            "message": "Collected 8 report file(s).",
+            "status": "WARN",
+            "next_actions": [],
+            "hardware_validation_status": "",
+            "data_summary": {
+              "status": "WARN"
+            }
+          },
+          {
+            "seq": 33,
+            "tool": "run_pre_hw_signoff",
+            "started_at": "2026-08-29T19:29:56.719858+00:00",
+            "ended_at": "2026-08-29T19:30:30.521630+00:00",
+            "duration_s": 33.813,
+            "ok": true,
+            "error_code": "",
+            "message": "Pre-hardware signoff status: WARN.",
+            "status": "WARN",
+            "next_actions": [
+              {
+                "tool": "check_timing_constraints",
+                "reason": "Check unconstrained clocks and endpoints before timing closure.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [
+                  "Implementation result is open."
+                ],
+                "stop_condition": "check_timing_constraints status is READY.",
+                "optional": false
+              },
+              {
+                "tool": "analyze_timing_closure",
+                "reason": "Aggregate timing, DRC, methodology, and critical-message blockers.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [
+                  "Implementation result is open."
+                ],
+                "stop_condition": "analyze_timing_closure status is READY.",
+                "optional": false
+              },
+              {
+                "tool": "get_methodology_report",
+                "reason": "Inspect methodology errors before bitstream handoff.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [
+                  "Implementation result is open."
+                ],
+                "stop_condition": "methodology report has no ERROR or CRITICAL WARNING.",
+                "optional": false
+              },
+              {
+                "tool": "collect_report_bundle",
+                "reason": "Refresh report evidence after signoff findings are addressed.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "workflow.run_name or current implementation run"
+                },
+                "preconditions": [
+                  "Implementation results are available."
+                ],
+                "stop_condition": "report_manifest.json is written.",
+                "optional": true
+              }
+            ],
+            "hardware_validation_status": "NOT_VALIDATED",
+            "data_summary": {
+              "status": "WARN"
+            }
+          },
+          {
+            "seq": 34,
+            "tool": "run_project_audit",
+            "started_at": "2026-08-29T19:30:30.523631+00:00",
+            "ended_at": "2026-08-29T19:31:07.173848+00:00",
+            "duration_s": 36.64,
+            "ok": true,
+            "error_code": "",
+            "message": "Project audit status: WARN.",
+            "status": "WARN",
+            "next_actions": [
+              {
+                "tool": "analyze_timing_closure",
+                "reason": "Diagnose timing, DRC, methodology, and readiness blockers.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [
+                  "Implementation result is open."
+                ],
+                "stop_condition": "analyze_timing_closure status is READY.",
+                "optional": false
+              },
+              {
+                "tool": "get_drc_report",
+                "reason": "Inspect DRC quality findings.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [
+                  "Implementation result is open."
+                ],
+                "stop_condition": "DRC report has no ERROR or CRITICAL WARNING.",
+                "optional": false
+              },
+              {
+                "tool": "get_methodology_report",
+                "reason": "Inspect methodology quality findings.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [
+                  "Implementation result is open."
+                ],
+                "stop_condition": "methodology report has no ERROR or CRITICAL WARNING.",
+                "optional": false
+              },
+              {
+                "tool": "collect_report_bundle",
+                "reason": "Regenerate implementation report bundle or preserve explicit missing-report reasons.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "workflow.run_name or impl_1"
+                },
+                "preconditions": [
+                  "Implementation results are available."
+                ],
+                "stop_condition": "report manifest is written with present/missing status for expected reports.",
+                "optional": false
+              },
+              {
+                "tool": "create_signoff_waiver",
+                "reason": "Create an explicit waiver only for reviewed, acceptable findings; raw findings stay preserved.",
+                "required_args": [
+                  "id",
+                  "finding_fingerprint",
+                  "project_dir"
+                ],
+                "arg_sources": {
+                  "id": "user-chosen waiver id",
+                  "finding_fingerprint": "run_project_audit.data.active_findings[].finding_fingerprint"
+                },
+                "preconditions": [
+                  "Finding has been reviewed and accepted for this project context."
+                ],
+                "stop_condition": "waiver is stored in vmcp_signoff/waivers.json.",
+                "optional": true
+              }
+            ],
+            "hardware_validation_status": "NOT_VALIDATED",
+            "data_summary": {
+              "status": "WARN"
+            }
+          },
+          {
+            "seq": 35,
+            "tool": "collect_diagnostic_bundle",
+            "started_at": "2026-08-29T19:31:07.174860+00:00",
+            "ended_at": "2026-08-29T19:31:51.216122+00:00",
+            "duration_s": 44.047,
+            "ok": true,
+            "error_code": "",
+            "message": "<redacted-local-identity>",
+            "status": "",
+            "next_actions": [],
+            "hardware_validation_status": "NOT_VALIDATED",
+            "data_summary": {}
+          },
+          {
+            "seq": 36,
+            "tool": "validate_diagnostic_bundle",
+            "started_at": "2026-08-29T19:31:51.217123+00:00",
+            "ended_at": "2026-08-29T19:31:52.305604+00:00",
+            "duration_s": 1.094,
+            "ok": true,
+            "error_code": "",
+            "message": "Diagnostic bundle health: WARN.",
+            "status": "WARN",
+            "next_actions": [
+              {
+                "tool": "get_agent_workflows",
+                "reason": "Resume from this project-local reference index after explicitly reviewing WARN findings and portability limits.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [
+                  "validate_diagnostic_bundle returned WARN with handoff_reviewable=true.",
+                  "Audit findings and bundle_not_portable have been reviewed and accepted or assigned."
+                ],
+                "stop_condition": "Agent resumes from the originating project or records why the reference index is sufficient.",
+                "optional": false
+              },
+              {
+                "tool": "run_project_audit",
+                "reason": "Optionally rerun audit after addressing warning findings; this does not make a reference bundle portable.",
+                "required_args": [
+                  "run_name"
+                ],
+                "arg_sources": {
+                  "run_name": "workflow.run_name or current implementation run"
+                },
+                "preconditions": [
+                  "Original Vivado project is open and warning fixes or waivers were applied."
+                ],
+                "stop_condition": "run_project_audit data.status is READY or remaining findings are documented.",
+                "optional": true
+              }
+            ],
+            "hardware_validation_status": "NOT_VALIDATED",
+            "data_summary": {
+              "handoff_ready": false,
+              "handoff_reviewable": true,
+              "status": "WARN",
+              "resume_context": {
+                "status": "WARN",
+                "handoff_ready": false,
+                "recommended_entrypoint": "get_agent_workflows",
+                "workflow_trace_ref": {
+                  "size": 28929,
+                  "sha256": "787f849d9a4166240c92cc2b84fc89c81059b8069994fba1ba993156577213fc",
+                  "mtime_ns": 1788031867162241800,
+                  "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+                }
+              }
+            }
+          },
+          {
+            "seq": 37,
+            "tool": "stop_session",
+            "started_at": "2026-08-29T19:31:52.307607+00:00",
+            "ended_at": "2026-08-29T19:31:53.056431+00:00",
+            "duration_s": 0.75,
+            "ok": true,
+            "error_code": "",
+            "message": "Vivado session stopped.",
+            "status": "",
+            "next_actions": [
+              {
+                "tool": "get_runtime_cache_status",
+                "reason": "Inspect the Vivado MCP runtime directory after stopping the session.",
+                "required_args": [],
+                "arg_sources": {},
+                "preconditions": [
+                  "Vivado MCP managed session has been stopped."
+                ],
+                "stop_condition": "Runtime cache status is available for dry-run cleanup planning.",
+                "optional": true
+              }
+            ],
+            "hardware_validation_status": "",
+            "data_summary": {}
+          }
+        ],
+        "stop_session": {
+          "ok": true,
+          "tool": "stop_session",
+          "error_code": "",
+          "message": "Vivado session stopped.",
+          "status": "",
+          "handoff_ready": null,
+          "handoff_reviewable": null,
+          "hardware_validation": {},
+          "resume_context": {}
+        },
+        "final_validation": {
+          "ok": true,
+          "tool": "validate_diagnostic_bundle",
+          "error_code": "",
+          "message": "Diagnostic bundle health: WARN.",
+          "status": "WARN",
+          "handoff_ready": false,
+          "handoff_reviewable": true,
+          "hardware_validation": {
+            "status": "NOT_VALIDATED",
+            "validated": false,
+            "real_board_required": true,
+            "scope": "pre-hardware software flow only",
+            "message": "Generated with no real FPGA board validation; real hardware bring-up is deferred."
+          },
+          "resume_context": {
+            "status": "WARN",
+            "audit_status": "WARN",
+            "handoff_ready": false,
+            "handoff_reviewable": true,
+            "review_required_reasons": [
+              "audit_status=WARN",
+              "bundle_not_portable"
+            ],
+            "review_guidance": {
+              "classification": "reviewable_warn",
+              "agent_instruction": "Treat this as a project-local review index, not a portable READY bundle and not real hardware validation.",
+              "acceptable_warn_categories": [
+                "audit_status=WARN with no active BLOCK findings",
+                "READY_WITH_WAIVERS with explicit waiver evidence retained for human review",
+                "documented board-handoff warnings such as missing CFGBVS/CONFIG_VOLTAGE when no real board is available",
+                "documented IO timing review warnings such as no_input_delay/no_output_delay when board-level requirements are not yet supplied"
+              ],
+              "must_fix_before_handoff": [
+                "missing files, hash or size mismatches, path escapes, invalid manifest entries, resource-limit failures",
+                "missing or non-NOT_VALIDATED hardware boundary",
+                "missing or stale evidence_freshness",
+                "audit_status=BLOCK"
+              ],
+              "review_required_evidence": [
+                "Review every waived finding and its matched_finding_sha256; waivers do not produce handoff_ready without an external approval anchor.",
+                "Record why missing input/output delays are acceptable for this no-board software handoff, or provide board-level IO timing requirements and rerun timing/audit.",
+                "Keep hardware_validation.status=NOT_VALIDATED until real FPGA board/JTAG evidence exists."
+              ]
+            },
+            "categories": [
+              "artifact_manifest",
+              "audit",
+              "environment",
+              "filesets",
+              "logs",
+              "project_state",
+              "replay_script",
+              "report_manifest",
+              "run_configurations",
+              "session_status",
+              "waivers",
+              "workflow_trace"
+            ],
+            "category_counts": {
+              "audit": 1,
+              "environment": 1,
+              "project_state": 1,
+              "filesets": 1,
+              "run_configurations": 1,
+              "waivers": 1,
+              "session_status": 1,
+              "replay_script": 1,
+              "logs": 1,
+              "report_manifest": 1,
+              "artifact_manifest": 1,
+              "workflow_trace": 1
+            },
+            "primary_file_refs": {
+              "audit": {
+                "size": 282596,
+                "sha256": "f80d694cbc99405b72e19b919373f45d9df52812456430c8070ffabfd8753314",
+                "mtime_ns": 1788031910974661800,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "environment": {
+                "size": 2053,
+                "sha256": "85ef85b4148e0c3bb0a3438a11d1bbb4c9ce82e1d9f8f2c7a427e2b79e6f4dd3",
+                "mtime_ns": 1788031910983680200,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "project_state": {
+                "size": 5733,
+                "sha256": "f10a36d7359359c4b1f66c72988fc3e1ae63061cd72a1cace2cb886aabf0f358",
+                "mtime_ns": 1788031910985680500,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "filesets": {
+                "size": 959,
+                "sha256": "5f9c6fc649811cd31d62403195c42a4ea64624fbc577775552472ce24c14b386",
+                "mtime_ns": 1788031910996347800,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "run_configurations": {
+                "size": 29732,
+                "sha256": "c6fe1717e2cb89f2d5bfe1fc7e1e002a8d4f51d3f4b2db8de2b45cf609923fd4",
+                "mtime_ns": 1788031911003347700,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "waivers": {
+                "size": 21,
+                "sha256": "8db9a802db51aaea9c3f8b622fcabbc79067e06d1e0f859ff0899bb46a46e6d7",
+                "mtime_ns": 1788031911010806100,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "session_status": {
+                "size": 1250,
+                "sha256": "6ad775f57781c909eda5071b6e900c43e8dcfd0fb43a19546e71ad4f47a3f5ae",
+                "mtime_ns": 1788031911011812200,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "replay_script": {
+                "size": 1661,
+                "sha256": "1a68136b0bde60b20975bf5b8dc2209a3cf9aa6e3819237f8d4841199966a5e1",
+                "mtime_ns": 1788031911017810500,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "logs": {
+                "size": 20291,
+                "sha256": "5b30330b54c50515f1a6e206ec0a2984428369d455cb58c8bf5030eca6cfd0b1",
+                "mtime_ns": 1788031911024582100,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "report_manifest": {
+                "size": 23885,
+                "sha256": "6f11811014771da18c2478f030368e5014b098eeeab7cc308179bc9abf17d8d5",
+                "mtime_ns": 1788031911031786300,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "artifact_manifest": {
+                "size": 46698,
+                "sha256": "2454a7f2fe0f60ad9febe729c633496b608f49b5766f92e7c2251fd3f621e762",
+                "mtime_ns": 1788031911043794700,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              },
+              "workflow_trace": {
+                "size": 28929,
+                "sha256": "787f849d9a4166240c92cc2b84fc89c81059b8069994fba1ba993156577213fc",
+                "mtime_ns": 1788031867162241800,
+                "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+              }
+            },
+            "workflow_trace_ref": {
+              "size": 28929,
+              "sha256": "787f849d9a4166240c92cc2b84fc89c81059b8069994fba1ba993156577213fc",
+              "mtime_ns": 1788031867162241800,
+              "consumption_contract": "revalidate_size_sha256_file_id_mtime_before_read"
+            },
+            "workflow_trace_append_only_growth": [],
+            "workflow_trace_captured_size": 28929,
+            "workflow_trace_integrity": {
+              "status": "READY",
+              "format": "hash_chain_v1",
+              "issues": [],
+              "verified_entries": 29,
+              "last_entry_hash": "407ac7a202979efb2c04ecd2ee78185ede320fdd99f83f797747bcc053e649ae",
+              "trace_id": "20260829_192636_a481c159",
+              "trace_ids": [
+                "20260829_192636_a481c159"
+              ],
+              "session_boundary_count": 0,
+              "session_boundaries": []
+            },
+            "authenticity": {
+              "status": "READY",
+              "code": "ATTESTED_LOCAL_USER",
+              "issues": [],
+              "scheme": "HMAC-SHA256",
+              "trust_scope": "local_os_user",
+              "portable": false,
+              "external_signature": false,
+              "manifest_payload_sha256": "e2514249369efc32992913cbcc35452651bbd5494a4eb99f059069dab075595f"
+            },
+            "hardware_validation_status": "NOT_VALIDATED",
+            "evidence_freshness_status": "FRESH",
+            "design_execution_identity_sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+            "recommended_entrypoint": "get_agent_workflows",
+            "bundle_mode": "reference",
+            "portable": false
+          }
+        },
+        "partial_handoff": {
+          "handoff_partial": false,
+          "handoff_blocker": "",
+          "completed_tools": [
+            "collect_build_artifacts",
+            "collect_report_bundle",
+            "run_pre_hw_signoff",
+            "run_project_audit",
+            "collect_diagnostic_bundle",
+            "validate_diagnostic_bundle"
+          ],
+          "failed_tools": [],
+          "hardware_validation_status": "NOT_VALIDATED",
+          "next_actions": [
+            {
+              "tool": "start_session",
+              "reason": "The live scenario stops its Vivado session before writing final runner output; start a fresh managed session before running project-bound follow-up tools.",
+              "required_args": [],
+              "arg_sources": {},
+              "preconditions": [
+                "Follow-up audit, report, or Tcl inspection is needed after scenario completion."
+              ],
+              "stop_condition": "start_session returns ok=true and session_status.connected=true.",
+              "optional": false
+            },
+            {
+              "tool": "open_project",
+              "reason": "Reopen the scenario project before running project-bound analysis after stop_session.",
+              "required_args": [
+                "project_path"
+              ],
+              "arg_sources": {},
+              "preconditions": [
+                "start_session succeeded."
+              ],
+              "stop_condition": "open_project returns ok=true for the scenario .xpr.",
+              "optional": false
+            },
+            {
+              "tool": "validate_diagnostic_bundle",
+              "reason": "Re-check the saved diagnostic bundle before handoff review or archive.",
+              "required_args": [
+                "manifest_path"
+              ],
+              "arg_sources": {},
+              "preconditions": [
+                "Diagnostic manifest path exists."
+              ],
+              "stop_condition": "validate_diagnostic_bundle returns READY or reviewable WARN.",
+              "optional": true
+            },
+            {
+              "tool": "run_project_audit",
+              "reason": "Refresh audit only after the project is reopened; do not run project-bound audit against a stopped session.",
+              "required_args": [
+                "run_name"
+              ],
+              "arg_sources": {
+                "run_name": "impl_1"
+              },
+              "preconditions": [
+                "start_session and open_project succeeded."
+              ],
+              "stop_condition": "run_project_audit returns READY, WARN, or BLOCK with active findings.",
+              "optional": true
+            }
+          ]
+        },
+        "handoff_blocker": "",
+        "hardware_validation_status": "NOT_VALIDATED",
+        "handoff_status": "WARN",
+        "handoff_ready": false,
+        "handoff_reviewable": true,
+        "review_required_reasons": [
+          "audit_status=WARN",
+          "bundle_not_portable"
+        ],
+        "review_guidance": {
+          "classification": "reviewable_warn",
+          "agent_instruction": "Treat this as a project-local review index, not a portable READY bundle and not real hardware validation.",
+          "acceptable_warn_categories": [
+            "audit_status=WARN with no active BLOCK findings",
+            "READY_WITH_WAIVERS with explicit waiver evidence retained for human review",
+            "documented board-handoff warnings such as missing CFGBVS/CONFIG_VOLTAGE when no real board is available",
+            "documented IO timing review warnings such as no_input_delay/no_output_delay when board-level requirements are not yet supplied"
+          ],
+          "must_fix_before_handoff": [
+            "missing files, hash or size mismatches, path escapes, invalid manifest entries, resource-limit failures",
+            "missing or non-NOT_VALIDATED hardware boundary",
+            "missing or stale evidence_freshness",
+            "audit_status=BLOCK"
+          ],
+          "review_required_evidence": [
+            "Review every waived finding and its matched_finding_sha256; waivers do not produce handoff_ready without an external approval anchor.",
+            "Record why missing input/output delays are acceptable for this no-board software handoff, or provide board-level IO timing requirements and rerun timing/audit.",
+            "Keep hardware_validation.status=NOT_VALIDATED until real FPGA board/JTAG evidence exists."
+          ]
+        },
+        "recommended_entrypoint": "get_agent_workflows",
+        "next_actions": [
+          {
+            "tool": "start_session",
+            "reason": "The live scenario stops its Vivado session before writing final runner output; start a fresh managed session before running project-bound follow-up tools.",
+            "required_args": [],
+            "arg_sources": {},
+            "preconditions": [
+              "Follow-up audit, report, or Tcl inspection is needed after scenario completion."
+            ],
+            "stop_condition": "start_session returns ok=true and session_status.connected=true.",
+            "optional": false
+          },
+          {
+            "tool": "open_project",
+            "reason": "Reopen the scenario project before running project-bound analysis after stop_session.",
+            "required_args": [
+              "project_path"
+            ],
+            "arg_sources": {},
+            "preconditions": [
+              "start_session succeeded."
+            ],
+            "stop_condition": "open_project returns ok=true for the scenario .xpr.",
+            "optional": false
+          },
+          {
+            "tool": "validate_diagnostic_bundle",
+            "reason": "Re-check the saved diagnostic bundle before handoff review or archive.",
+            "required_args": [
+              "manifest_path"
+            ],
+            "arg_sources": {},
+            "preconditions": [
+              "Diagnostic manifest path exists."
+            ],
+            "stop_condition": "validate_diagnostic_bundle returns READY or reviewable WARN.",
+            "optional": true
+          },
+          {
+            "tool": "run_project_audit",
+            "reason": "Refresh audit only after the project is reopened; do not run project-bound audit against a stopped session.",
+            "required_args": [
+              "run_name"
+            ],
+            "arg_sources": {
+              "run_name": "impl_1"
+            },
+            "preconditions": [
+              "start_session and open_project succeeded."
+            ],
+            "stop_condition": "run_project_audit returns READY, WARN, or BLOCK with active findings.",
+            "optional": true
+          }
+        ],
+        "next_steps": [
+          "Review audit findings in audit_result.json and keep the bundle with its originating project; reference bundles are not self-contained.",
+          "Do not claim real FPGA board validation; hardware_validation.status remains NOT_VALIDATED."
+        ],
+        "summary": "S01 completed live Project Mode flow with reviewable WARN handoff.",
+        "recommendations": [
+          "Review WARN findings before archiving this as a no-board handoff."
+        ],
+        "handoff_tools_ok": true
+      }
+    ],
+    "hardware_validation_status": "NOT_VALIDATED",
+    "validation_matrix": {
+      "version": 1,
+      "policy_id": "default_no_board_scenario_matrix",
+      "scope": "Agent-facing software workflow validation without real FPGA hardware",
+      "include_live_vivado": true,
+      "required_no_live_scenarios": [
+        "S00",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07"
+      ],
+      "required_live_scenarios": [
+        "S01",
+        "S02",
+        "S03",
+        "S07"
+      ],
+      "rows": [
+        {
+          "id": "S00",
+          "requested": false,
+          "status": "NOT_RUN",
+          "execution_mode": "",
+          "evidence_class": "",
+          "full_scenario_coverage": false,
+          "hardware_validation_status": "",
+          "no_live_required": true,
+          "live_required": false,
+          "live_evidence_observed": false
+        },
+        {
+          "id": "S01",
+          "requested": true,
+          "status": "PASS",
+          "execution_mode": "mcp_stdio_live_project",
+          "evidence_class": "live_project_software_flow",
+          "full_scenario_coverage": true,
+          "hardware_validation_status": "NOT_VALIDATED",
+          "no_live_required": false,
+          "live_required": true,
+          "live_evidence_observed": true
+        },
+        {
+          "id": "S02",
+          "requested": false,
+          "status": "NOT_RUN",
+          "execution_mode": "",
+          "evidence_class": "",
+          "full_scenario_coverage": false,
+          "hardware_validation_status": "",
+          "no_live_required": false,
+          "live_required": true,
+          "live_evidence_observed": false
+        },
+        {
+          "id": "S03",
+          "requested": false,
+          "status": "NOT_RUN",
+          "execution_mode": "",
+          "evidence_class": "",
+          "full_scenario_coverage": false,
+          "hardware_validation_status": "",
+          "no_live_required": true,
+          "live_required": true,
+          "live_evidence_observed": false
+        },
+        {
+          "id": "S04",
+          "requested": false,
+          "status": "NOT_RUN",
+          "execution_mode": "",
+          "evidence_class": "",
+          "full_scenario_coverage": false,
+          "hardware_validation_status": "",
+          "no_live_required": true,
+          "live_required": false,
+          "live_evidence_observed": false
+        },
+        {
+          "id": "S05",
+          "requested": false,
+          "status": "NOT_RUN",
+          "execution_mode": "",
+          "evidence_class": "",
+          "full_scenario_coverage": false,
+          "hardware_validation_status": "",
+          "no_live_required": true,
+          "live_required": false,
+          "live_evidence_observed": false
+        },
+        {
+          "id": "S06",
+          "requested": false,
+          "status": "NOT_RUN",
+          "execution_mode": "",
+          "evidence_class": "",
+          "full_scenario_coverage": false,
+          "hardware_validation_status": "",
+          "no_live_required": true,
+          "live_required": false,
+          "live_evidence_observed": false
+        },
+        {
+          "id": "S07",
+          "requested": false,
+          "status": "NOT_RUN",
+          "execution_mode": "",
+          "evidence_class": "",
+          "full_scenario_coverage": false,
+          "hardware_validation_status": "",
+          "no_live_required": true,
+          "live_required": true,
+          "live_evidence_observed": false
+        }
+      ],
+      "checks": {
+        "all_requested_passed": true,
+        "no_live_matrix_complete": false,
+        "live_matrix_complete": false,
+        "no_block_results": true,
+        "hardware_boundary_not_validated": true
+      },
+      "status": "WATCH",
+      "complete": false,
+      "claim_boundary": "Scenario evidence only; not a release attestation or hardware validation.",
+      "next_required_runs": [
+        {
+          "reason": "Complete the no-live scenario matrix without starting Vivado."
+        },
+        {
+          "reason": "Collect live/live-lite no-board Project Mode evidence for the scenario matrix."
+        }
+      ]
+    },
+    "generated_at": "2026-08-29T19:31:53.108431+00:00",
+    "source_identity": {
+      "available": true,
+      "clean": true,
+      "git_toplevel": "<redacted-local-identity>",
+      "commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+      "tree": "f32d7dccd004c9df020498d56efe1741cde8f23e",
+      "tracked_digest": "a38472b0d6346ca744a59ef2854e555db6c11585c3f46a7ccc7730c91fa0259c",
+      "identity_id": "7fef026c497fd436b2a4c5652c1c65182495802ec6e98606c9b86ffe4a1a8329",
+      "tracked_file_count": 113,
+      "dirty_entry_count": 0,
+      "reason_code": "",
+      "reason": ""
+    },
+    "package_provenance": {
+      "mode": "installed_exact_wheel",
+      "workspace_import_disabled": true,
+      "wheel_payload_verified": true,
+      "wheel_sha256": "39502a628535e6a9c20d711c9fdaee705d8b8d5acbac22efded083e6e2710d24",
+      "wheel_record_sha256": "5f0ba4d9c2b85ce612e903c7257e206818d7dda891f31e9d94e727667335b3d6",
+      "wheel_member_count": 48,
+      "verified_payload_member_count": 47,
+      "installed_payload_sha256": "c9ec4d84a7db1ad10ccd7ba773b6cdf6909890bb5ce1b4c9cb4ded9976c2b1bb",
+      "installed_version": "0.10.0",
+      "installed_record_sha256": "32c66d1313e530aa5334672fb53acd0140dc4ed6e0a6d965ae35b92546b77472",
+      "python_executable": "<redacted-local-identity>",
+      "python_sha256": "137c474a645a9471ab3a369084e7cd573cd8b7ff8f81cb85363fffdf5904106c",
+      "environment_identity_sha256": "033c8c7531236e20a615f8b1ee7c2f57541938bb1eb147dd927ba496e306ff46",
+      "environment_identity": {
+        "python_executable": "<redacted-local-identity>",
+        "python_sha256": "137c474a645a9471ab3a369084e7cd573cd8b7ff8f81cb85363fffdf5904106c",
+        "python_version": "3.12.7",
+        "python_implementation": "CPython",
+        "sys_prefix": "<redacted-local-identity>",
+        "wheel_sha256": "39502a628535e6a9c20d711c9fdaee705d8b8d5acbac22efded083e6e2710d24",
+        "installed_payload_sha256": "c9ec4d84a7db1ad10ccd7ba773b6cdf6909890bb5ce1b4c9cb4ded9976c2b1bb",
+        "installed_record_sha256": "32c66d1313e530aa5334672fb53acd0140dc4ed6e0a6d965ae35b92546b77472"
+      },
+      "validation_harness": {
+        "status": "VERIFIED",
+        "policy": "exact_source_harness_size_sha256",
+        "identity_sha256": "8afd6447b4bef3eeea11b89915e6e59864901a524aa478b2f9caaf8f0b6ac81e",
+        "files": [
+          {
+            "size": 180704,
+            "sha256": "fb1eaa850b5a49d5dd0b7079d062dccfda29c48bb54e1f1c16a754fa79f6b9f6"
+          },
+          {
+            "size": 25132,
+            "sha256": "55fea62a07f3a1db5de299e16d5b5fa9968f38af78b64d30bc5bc46861fae24a"
+          },
+          {
+            "size": 32453,
+            "sha256": "7bfdf3dfff4c026ba1e9224e29b83903993c81d284d19b021b5c7c78ee0615d1"
+          }
+        ]
+      },
+      "source_identity": {
+        "available": true,
+        "clean": true,
+        "git_toplevel": "<redacted-local-identity>",
+        "commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+        "tree": "f32d7dccd004c9df020498d56efe1741cde8f23e",
+        "tracked_digest": "a38472b0d6346ca744a59ef2854e555db6c11585c3f46a7ccc7730c91fa0259c",
+        "identity_id": "7fef026c497fd436b2a4c5652c1c65182495802ec6e98606c9b86ffe4a1a8329",
+        "tracked_file_count": 113,
+        "dirty_entry_count": 0,
+        "reason_code": "",
+        "reason": ""
+      },
+      "release_evidence_id": "9aa3bcaee26ade10e2ae6aa4618efe3c6a9b601fb2c4db6bc578d262c7ba0c0d",
+      "evidence_run_id": "8d1683f8bc6c40849970b6ac8a07200f"
+    },
+    "release_evidence_id": "9aa3bcaee26ade10e2ae6aa4618efe3c6a9b601fb2c4db6bc578d262c7ba0c0d",
+    "evidence_run_id": "8d1683f8bc6c40849970b6ac8a07200f"
+  },
+  "hardware_validation": {
+    "status": "NOT_VALIDATED",
+    "validated": false,
+    "scope": "real_fpga_jtag_programming_runtime"
+  }
+}

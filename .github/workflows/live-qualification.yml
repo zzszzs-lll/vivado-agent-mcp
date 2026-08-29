@@ -150,6 +150,7 @@ jobs:
           Write-Host "hardware status remains NOT_VALIDATED"
 
       - name: Upload public-safe qualification records
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vivado-agent-mcp-live-qualification-${{ github.sha }}
@@ -160,6 +161,8 @@ jobs:
             test_use/live_qualification/**/qualification-record.json
             test_use/live_qualification/**/qualification-validation.json
             test_use/live_qualification/**/qualification-matrix.json
-          if-no-files-found: error
+            test_use/live_qualification/**/qualification-summary.json
+            test_use/live_qualification/**/public-evidence/*.json
+          if-no-files-found: warn
           retention-days: 30
           compression-level: 0

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "record_id": "9889a991f65cc3fa48d60bf12dd6cf068c424373e34f07365b7c18e5f2adaf8a",
+  "record_id": "43479fbaf31ca39d3dcfbd699f36643e6c176fcd1baadea345f55c8099cec330",
   "generated_at": "2026-08-29T19:31:53.165555+00:00",
   "qualification_status": "qualified",
   "terminal": {
@@ -92,26 +92,26 @@
   },
   "evidence": {
     "freshness": "FRESH",
-    "normalized_evidence_sha256": "607751866ea4a9c251dd7d87f59d5bb02b28332026855ee11d78920b885ac5ad",
+    "normalized_evidence_sha256": "28f3a288dfb2241edc0045b2ab8565eb2970b80c1d8c985094ec64ed99becb28",
     "scenario_result": {
-      "size": 78312,
-      "sha256": "0caea5abdb3a2cb3647105ee1db9cdaef8671153661352178334f722af8b5c2a"
+      "size": 67632,
+      "sha256": "e79aeea7fae3d4ddcc9986c49fe240cfb3d669515ecd19542c5490d54054fbce"
     },
     "artifact_manifest": {
-      "size": 46698,
-      "sha256": "2454a7f2fe0f60ad9febe729c633496b608f49b5766f92e7c2251fd3f621e762"
+      "size": 26476,
+      "sha256": "b99df1c810cefa2e5413eb485f3fbe37d748da49a896ce0237a0055f0e8e76cc"
     },
     "report_manifest": {
-      "size": 23885,
-      "sha256": "6f11811014771da18c2478f030368e5014b098eeeab7cc308179bc9abf17d8d5"
+      "size": 18824,
+      "sha256": "a6e6d639e6bb98de181ccd32474c6e5937663e62bae4f179abacf75d5538fb99"
     },
     "audit_result": {
-      "size": 282596,
-      "sha256": "f80d694cbc99405b72e19b919373f45d9df52812456430c8070ffabfd8753314"
+      "size": 119419,
+      "sha256": "7f863a5c3143d9561b225e61c0a6dd7e221756026e15113fa86b81329def72ec"
     },
     "diagnostic_manifest": {
-      "size": 17148,
-      "sha256": "71814c46d0bd0c47efe1b1258bde86a3feb40bd8f919a2fabc7a558051c4a09f"
+      "size": 10654,
+      "sha256": "6db9495dae47e91836b025506817adc30de310668e2967b4320f593729281c9b"
     }
   },
   "software_validation": {

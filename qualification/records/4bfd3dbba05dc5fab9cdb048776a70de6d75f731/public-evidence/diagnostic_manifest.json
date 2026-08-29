@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "evidence_type": "diagnostic_manifest",
+  "source_commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+  "raw_evidence": {
+    "size": 17148,
+    "sha256": "71814c46d0bd0c47efe1b1258bde86a3feb40bd8f919a2fabc7a558051c4a09f"
+  },
+  "summary": {
+    "schema_version": 2,
+    "bundle_mode": "reference",
+    "portable": false,
+    "portability": {
+      "status": "PROJECT_LOCAL_REFERENCE_ONLY",
+      "reason": "Referenced report and artifact payloads remain in project-local vmcp_reports and vmcp_artifacts directories."
+    },
+    "created_at": "2026-08-29T19:31:51Z",
+    "hardware_validation": {
+      "status": "NOT_VALIDATED",
+      "validated": false,
+      "real_board_required": true,
+      "scope": "pre-hardware software flow only",
+      "message": "Generated with no real FPGA board validation; real hardware bring-up is deferred."
+    },
+    "integrity_model": {
+      "status": "SELF_CONSISTENCY_VERIFIED_BY_FILE_HASHES",
+      "scope": "bundle_files",
+      "authenticity_distinction": "Bundle file hashes detect accidental or partial mutation. Local runtime attestation is evaluated separately."
+    },
+    "summary": {
+      "file_count": 12,
+      "audit_status": "WARN",
+      "effective_status": "WARN",
+      "validation_scope": "pre_hardware_software",
+      "ready_meaning": "READY means Project Mode software evidence is handoff-ready without real FPGA board validation.",
+      "waiver_summary": {
+        "waived_finding_count": 0,
+        "active_finding_count": 4,
+        "requires_handoff_archive": false
+      },
+      "evidence_freshness": {
+        "status": "FRESH",
+        "issues": [],
+        "run_states": [
+          {
+            "run_name": "synth_1",
+            "status": "synth_design Complete!",
+            "needs_refresh": false
+          },
+          {
+            "run_name": "impl_1",
+            "status": "write_bitstream Complete!",
+            "needs_refresh": false
+          }
+        ],
+        "design_execution_identity_sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+        "checked_at": "2026-08-29T19:31:44Z"
+      },
+      "design_execution_identity_sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+      "active_block_count": 0,
+      "active_warning_count": 4,
+      "waived_count": 0,
+      "active_finding_count": 4,
+      "waived_finding_count": 0,
+      "next_step_count": 5,
+      "next_steps": [
+        "Review active warnings and keep diagnostic bundle/replay script with the project handoff.",
+        "Run get_constraints_summary, check_timing_constraints, and analyze_timing_closure; fix XDC/timing readiness blockers.",
+        "Run get_drc_report and get_methodology_report; resolve implementation quality findings.",
+        "Run collect_report_bundle after implementation results are available; if an optional report remains missing, keep the manifest reason in the handoff.",
+        "For known acceptable findings, create an explicit signoff waiver; do not hide raw findings."
+      ],
+      "next_actions": [
+        {
+          "tool": "analyze_timing_closure",
+          "reason": "Diagnose timing, DRC, methodology, and readiness blockers.",
+          "required_args": [],
+          "arg_sources": {},
+          "preconditions": [
+            "Implementation result is open."
+          ],
+          "stop_condition": "analyze_timing_closure status is READY.",
+          "optional": false
+        },
+        {
+          "tool": "get_drc_report",
+          "reason": "Inspect DRC quality findings.",
+          "required_args": [],
+          "arg_sources": {},
+          "preconditions": [
+            "Implementation result is open."
+          ],
+          "stop_condition": "DRC report has no ERROR or CRITICAL WARNING.",
+          "optional": false
+        },
+        {
+          "tool": "get_methodology_report",
+          "reason": "Inspect methodology quality findings.",
+          "required_args": [],
+          "arg_sources": {},
+          "preconditions": [
+            "Implementation result is open."
+          ],
+          "stop_condition": "methodology report has no ERROR or CRITICAL WARNING.",
+          "optional": false
+        },
+        {
+          "tool": "collect_report_bundle",
+          "reason": "Regenerate implementation report bundle or preserve explicit missing-report reasons.",
+          "required_args": [
+            "run_name"
+          ],
+          "arg_sources": {
+            "run_name": "workflow.run_name or impl_1"
+          },
+          "preconditions": [
+            "Implementation results are available."
+          ],
+          "stop_condition": "report manifest is written with present/missing status for expected reports.",
+          "optional": false
+        },
+        {
+          "tool": "create_signoff_waiver",
+          "reason": "Create an explicit waiver only for reviewed, acceptable findings; raw findings stay preserved.",
+          "required_args": [
+            "id",
+            "finding_fingerprint",
+            "project_dir"
+          ],
+          "arg_sources": {
+            "id": "user-chosen waiver id",
+            "finding_fingerprint": "run_project_audit.data.active_findings[].finding_fingerprint"
+          },
+          "preconditions": [
+            "Finding has been reviewed and accepted for this project context."
+          ],
+          "stop_condition": "waiver is stored in vmcp_signoff/waivers.json.",
+          "optional": true
+        }
+      ],
+      "hardware_validation": {
+        "status": "NOT_VALIDATED",
+        "validated": false,
+        "real_board_required": true,
+        "scope": "pre-hardware software flow only",
+        "message": "Generated with no real FPGA board validation; real hardware bring-up is deferred."
+      },
+      "categories": [
+        "artifact_manifest",
+        "audit",
+        "environment",
+        "filesets",
+        "logs",
+        "project_state",
+        "replay_script",
+        "report_manifest",
+        "run_configurations",
+        "session_status",
+        "waivers",
+        "workflow_trace"
+      ],
+      "category_counts": {
+        "audit": 1,
+        "environment": 1,
+        "project_state": 1,
+        "filesets": 1,
+        "run_configurations": 1,
+        "waivers": 1,
+        "session_status": 1,
+        "replay_script": 1,
+        "logs": 1,
+        "report_manifest": 1,
+        "artifact_manifest": 1,
+        "workflow_trace": 1
+      },
+      "primary_files": {
+        "audit": "<redacted-local-identity>",
+        "environment": "<redacted-local-identity>",
+        "project_state": "<redacted-local-identity>",
+        "filesets": "<redacted-local-identity>",
+        "run_configurations": "<redacted-local-identity>",
+        "waivers": "<redacted-local-identity>",
+        "session_status": "<redacted-local-identity>",
+        "replay_script": "<redacted-local-identity>",
+        "logs": "<redacted-local-identity>",
+        "report_manifest": "<redacted-local-identity>",
+        "artifact_manifest": "<redacted-local-identity>",
+        "workflow_trace": "<redacted-local-identity>"
+      },
+      "required_categories": [
+        "audit",
+        "environment",
+        "project_state",
+        "filesets",
+        "run_configurations",
+        "waivers",
+        "session_status",
+        "replay_script",
+        "logs"
+      ],
+      "missing_required_categories": [],
+      "complete": true
+    },
+    "files": [
+      {
+        "category": "audit",
+        "size": 282596,
+        "sha256": "f80d694cbc99405b72e19b919373f45d9df52812456430c8070ffabfd8753314"
+      },
+      {
+        "category": "environment",
+        "size": 2053,
+        "sha256": "85ef85b4148e0c3bb0a3438a11d1bbb4c9ce82e1d9f8f2c7a427e2b79e6f4dd3"
+      },
+      {
+        "category": "project_state",
+        "size": 5733,
+        "sha256": "f10a36d7359359c4b1f66c72988fc3e1ae63061cd72a1cace2cb886aabf0f358"
+      },
+      {
+        "category": "filesets",
+        "size": 959,
+        "sha256": "5f9c6fc649811cd31d62403195c42a4ea64624fbc577775552472ce24c14b386"
+      },
+      {
+        "category": "run_configurations",
+        "size": 29732,
+        "sha256": "c6fe1717e2cb89f2d5bfe1fc7e1e002a8d4f51d3f4b2db8de2b45cf609923fd4"
+      },
+      {
+        "category": "waivers",
+        "size": 21,
+        "sha256": "8db9a802db51aaea9c3f8b622fcabbc79067e06d1e0f859ff0899bb46a46e6d7"
+      },
+      {
+        "category": "session_status",
+        "size": 1250,
+        "sha256": "6ad775f57781c909eda5071b6e900c43e8dcfd0fb43a19546e71ad4f47a3f5ae"
+      },
+      {
+        "category": "replay_script",
+        "size": 1661,
+        "sha256": "1a68136b0bde60b20975bf5b8dc2209a3cf9aa6e3819237f8d4841199966a5e1"
+      },
+      {
+        "category": "logs",
+        "size": 20291,
+        "sha256": "5b30330b54c50515f1a6e206ec0a2984428369d455cb58c8bf5030eca6cfd0b1"
+      },
+      {
+        "category": "report_manifest",
+        "size": 23885,
+        "sha256": "6f11811014771da18c2478f030368e5014b098eeeab7cc308179bc9abf17d8d5",
+        "source_sha256": "6f11811014771da18c2478f030368e5014b098eeeab7cc308179bc9abf17d8d5",
+        "source_size": 23885,
+        "source_mtime_ns": 1788031796687498600,
+        "evidence_consumption": "validated_bytes_snapshot"
+      },
+      {
+        "category": "artifact_manifest",
+        "size": 46698,
+        "sha256": "2454a7f2fe0f60ad9febe729c633496b608f49b5766f92e7c2251fd3f621e762",
+        "source_sha256": "2454a7f2fe0f60ad9febe729c633496b608f49b5766f92e7c2251fd3f621e762",
+        "source_size": 46698,
+        "source_mtime_ns": 1788031783419969200,
+        "evidence_consumption": "validated_bytes_snapshot"
+      },
+      {
+        "category": "workflow_trace",
+        "size": 28929,
+        "sha256": "787f849d9a4166240c92cc2b84fc89c81059b8069994fba1ba993156577213fc"
+      }
+    ],
+    "authenticity": {
+      "status": "ATTESTED_LOCAL_USER",
+      "scheme": "HMAC-SHA256",
+      "schema_version": 2,
+      "manifest_payload_sha256": "e2514249369efc32992913cbcc35452651bbd5494a4eb99f059069dab075595f",
+      "manifest_hmac_sha256": "c80c436ae4a456712266b0402a736ea3004d4e2b1ae2195689f645c27c597700",
+      "trust_scope": "local_os_user",
+      "portable": false,
+      "external_signature": false,
+      "note": "This OS-user-local HMAC detects bundle replacement only while the private user trust anchor remains uncompromised. It does not defend against compromise of the same OS user and is not an Ed25519/Sigstore or portable supply-chain signature."
+    }
+  },
+  "hardware_validation": {
+    "status": "NOT_VALIDATED",
+    "validated": false,
+    "scope": "real_fpga_jtag_programming_runtime"
+  }
+}

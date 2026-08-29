@@ -1,0 +1,3033 @@
+{
+  "schema_version": 1,
+  "evidence_type": "audit_result",
+  "source_commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+  "raw_evidence": {
+    "size": 282596,
+    "sha256": "f80d694cbc99405b72e19b919373f45d9df52812456430c8070ffabfd8753314"
+  },
+  "summary": {
+    "ok": true,
+    "status": "WARN",
+    "effective_status": "WARN",
+    "validation_scope": "pre_hardware_software",
+    "ready_meaning": "READY means Project Mode software evidence is handoff-ready without real FPGA board validation.",
+    "hardware_validation": {
+      "status": "NOT_VALIDATED",
+      "validated": false,
+      "real_board_required": true,
+      "scope": "pre-hardware software flow only",
+      "message": "Generated with no real FPGA board validation; real hardware bring-up is deferred."
+    },
+    "waiver_summary": {
+      "waived_finding_count": 0,
+      "active_finding_count": 4,
+      "requires_handoff_archive": false
+    },
+    "evidence_freshness": {
+      "status": "FRESH",
+      "issues": [],
+      "run_states": [
+        {
+          "run_name": "synth_1",
+          "status": "synth_design Complete!",
+          "needs_refresh": false
+        },
+        {
+          "run_name": "impl_1",
+          "status": "write_bitstream Complete!",
+          "needs_refresh": false
+        }
+      ],
+      "design_execution_identity_sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+      "checked_at": "2026-08-29T19:31:44Z"
+    },
+    "waiver_evidence_identity_sha256": "b9688022cbb0f2ce2fddcab7a0a2a4162ba4f7282cd3cc5b2dcfd2bc07ee4b19",
+    "health_summary": {
+      "project_name": "s01_counter",
+      "part": "xc7a35tcpg236-1",
+      "top": "qualification_counter",
+      "active_block_count": 0,
+      "active_warning_count": 4,
+      "waived_count": 0
+    },
+    "active_findings": [
+      {
+        "id": "run_pre_hw_signoff-0",
+        "severity": "WARN",
+        "code": "READINESS_WARN",
+        "message": "check_timing reports no_input_delay=1",
+        "source_tool": "run_pre_hw_signoff",
+        "finding_fingerprint": "66a3b8d791ca8437605adcad4d4eed7f752b669f7e97a8d1c402f1772bbf345e",
+        "evidence_identity_sha256": "b9688022cbb0f2ce2fddcab7a0a2a4162ba4f7282cd3cc5b2dcfd2bc07ee4b19",
+        "waiver_eligible": true
+      },
+      {
+        "id": "run_pre_hw_signoff-1",
+        "severity": "WARN",
+        "code": "READINESS_WARN",
+        "message": "check_timing reports no_output_delay=4",
+        "source_tool": "run_pre_hw_signoff",
+        "finding_fingerprint": "87f90791037768c914d1dcd0f23f88e8ac27b7aebc876b47fe45c3d6310ce853",
+        "evidence_identity_sha256": "b9688022cbb0f2ce2fddcab7a0a2a4162ba4f7282cd3cc5b2dcfd2bc07ee4b19",
+        "waiver_eligible": true
+      },
+      {
+        "id": "run_pre_hw_signoff-2",
+        "severity": "WARN",
+        "code": "METHODOLOGY",
+        "message": "Methodology contains 5 warning(s)",
+        "source_tool": "run_pre_hw_signoff",
+        "finding_fingerprint": "553ff68802af1fbf164724cbd5d2edbc1c13b37e7939774fcc24013239b15d38",
+        "evidence_identity_sha256": "b9688022cbb0f2ce2fddcab7a0a2a4162ba4f7282cd3cc5b2dcfd2bc07ee4b19",
+        "waiver_eligible": true
+      },
+      {
+        "id": "collect_report_bundle-3",
+        "severity": "WARN",
+        "code": "REPORT_FILE_MISSING",
+        "message": "qor report missing: qor_summary.rpt was not generated; report_qor_summary status=unavailable; message=report_qor_summary command is unavailable in this Vivado version.",
+        "source_tool": "collect_report_bundle",
+        "finding_fingerprint": "accf59cbcb0479bbb31d42407f11ff9fe073a1b75cc74d54caf38ed713f442ac",
+        "evidence_identity_sha256": "b9688022cbb0f2ce2fddcab7a0a2a4162ba4f7282cd3cc5b2dcfd2bc07ee4b19",
+        "waiver_eligible": true
+      }
+    ],
+    "waived_findings": [],
+    "waiver_count": 0,
+    "blocking_items": [],
+    "warnings": [
+      {
+        "id": "run_pre_hw_signoff-0",
+        "severity": "WARN",
+        "code": "READINESS_WARN",
+        "message": "check_timing reports no_input_delay=1",
+        "source_tool": "run_pre_hw_signoff",
+        "finding_fingerprint": "66a3b8d791ca8437605adcad4d4eed7f752b669f7e97a8d1c402f1772bbf345e",
+        "evidence_identity_sha256": "b9688022cbb0f2ce2fddcab7a0a2a4162ba4f7282cd3cc5b2dcfd2bc07ee4b19",
+        "waiver_eligible": true
+      },
+      {
+        "id": "run_pre_hw_signoff-1",
+        "severity": "WARN",
+        "code": "READINESS_WARN",
+        "message": "check_timing reports no_output_delay=4",
+        "source_tool": "run_pre_hw_signoff",
+        "finding_fingerprint": "87f90791037768c914d1dcd0f23f88e8ac27b7aebc876b47fe45c3d6310ce853",
+        "evidence_identity_sha256": "b9688022cbb0f2ce2fddcab7a0a2a4162ba4f7282cd3cc5b2dcfd2bc07ee4b19",
+        "waiver_eligible": true
+      },
+      {
+        "id": "run_pre_hw_signoff-2",
+        "severity": "WARN",
+        "code": "METHODOLOGY",
+        "message": "Methodology contains 5 warning(s)",
+        "source_tool": "run_pre_hw_signoff",
+        "finding_fingerprint": "553ff68802af1fbf164724cbd5d2edbc1c13b37e7939774fcc24013239b15d38",
+        "evidence_identity_sha256": "b9688022cbb0f2ce2fddcab7a0a2a4162ba4f7282cd3cc5b2dcfd2bc07ee4b19",
+        "waiver_eligible": true
+      },
+      {
+        "id": "collect_report_bundle-3",
+        "severity": "WARN",
+        "code": "REPORT_FILE_MISSING",
+        "message": "qor report missing: qor_summary.rpt was not generated; report_qor_summary status=unavailable; message=report_qor_summary command is unavailable in this Vivado version.",
+        "source_tool": "collect_report_bundle",
+        "finding_fingerprint": "accf59cbcb0479bbb31d42407f11ff9fe073a1b75cc74d54caf38ed713f442ac",
+        "evidence_identity_sha256": "b9688022cbb0f2ce2fddcab7a0a2a4162ba4f7282cd3cc5b2dcfd2bc07ee4b19",
+        "waiver_eligible": true
+      }
+    ],
+    "next_steps": [
+      "Review active warnings and keep diagnostic bundle/replay script with the project handoff.",
+      "Run get_constraints_summary, check_timing_constraints, and analyze_timing_closure; fix XDC/timing readiness blockers.",
+      "Run get_drc_report and get_methodology_report; resolve implementation quality findings.",
+      "Run collect_report_bundle after implementation results are available; if an optional report remains missing, keep the manifest reason in the handoff.",
+      "For known acceptable findings, create an explicit signoff waiver; do not hide raw findings."
+    ],
+    "next_actions": [
+      {
+        "tool": "analyze_timing_closure",
+        "reason": "Diagnose timing, DRC, methodology, and readiness blockers.",
+        "required_args": [],
+        "arg_sources": {},
+        "preconditions": [
+          "Implementation result is open."
+        ],
+        "stop_condition": "analyze_timing_closure status is READY.",
+        "optional": false
+      },
+      {
+        "tool": "get_drc_report",
+        "reason": "Inspect DRC quality findings.",
+        "required_args": [],
+        "arg_sources": {},
+        "preconditions": [
+          "Implementation result is open."
+        ],
+        "stop_condition": "DRC report has no ERROR or CRITICAL WARNING.",
+        "optional": false
+      },
+      {
+        "tool": "get_methodology_report",
+        "reason": "Inspect methodology quality findings.",
+        "required_args": [],
+        "arg_sources": {},
+        "preconditions": [
+          "Implementation result is open."
+        ],
+        "stop_condition": "methodology report has no ERROR or CRITICAL WARNING.",
+        "optional": false
+      },
+      {
+        "tool": "collect_report_bundle",
+        "reason": "Regenerate implementation report bundle or preserve explicit missing-report reasons.",
+        "required_args": [
+          "run_name"
+        ],
+        "arg_sources": {
+          "run_name": "workflow.run_name or impl_1"
+        },
+        "preconditions": [
+          "Implementation results are available."
+        ],
+        "stop_condition": "report manifest is written with present/missing status for expected reports.",
+        "optional": false
+      },
+      {
+        "tool": "create_signoff_waiver",
+        "reason": "Create an explicit waiver only for reviewed, acceptable findings; raw findings stay preserved.",
+        "required_args": [
+          "id",
+          "finding_fingerprint",
+          "project_dir"
+        ],
+        "arg_sources": {
+          "id": "user-chosen waiver id",
+          "finding_fingerprint": "run_project_audit.data.active_findings[].finding_fingerprint"
+        },
+        "preconditions": [
+          "Finding has been reviewed and accepted for this project context."
+        ],
+        "stop_condition": "waiver is stored in vmcp_signoff/waivers.json.",
+        "optional": true
+      }
+    ],
+    "inputs": {
+      "environment": {
+        "ok": true,
+        "source": "environment",
+        "install_bin": "<redacted-local-identity>",
+        "version": null,
+        "path_hint_version": "2021.2",
+        "probed_version": null,
+        "version_attested": false,
+        "tools": {
+          "vivado": {
+            "available": true,
+            "version": null
+          },
+          "xvlog": {
+            "available": true,
+            "version": null
+          },
+          "xelab": {
+            "available": true,
+            "version": null
+          },
+          "xsim": {
+            "available": true,
+            "version": null
+          }
+        },
+        "xsim_available": true,
+        "searched": [
+          "<redacted-local-identity>"
+        ],
+        "trusted_executable_identity": {
+          "environment_variable": "VIVADO_PATH",
+          "object_identity": [
+            9267985230617076758,
+            281474977879117,
+            33279
+          ],
+          "sha256": "5d97b4c31ca191ca304da1d466857a65470c21ec6e9718f47537a49da40634f7",
+          "request_path_verified": true
+        },
+        "execution_attempted": false,
+        "launch_probe": {
+          "requested": false,
+          "ok": null,
+          "status": "SKIPPED",
+          "process_launch_ok": null,
+          "launch_ready": null,
+          "probed_version": null,
+          "version_attested": false,
+          "execution_attempted": false,
+          "diagnosis": {
+            "primary_cause": "not_requested",
+            "message": "Set probe_launch=true to run a bounded Vivado batch startup probe."
+          }
+        },
+        "process_launch_ok": null,
+        "launch_ready": null
+      },
+      "project_state": {
+        "ok": true,
+        "project": {
+          "name": "s01_counter",
+          "part": "xc7a35tcpg236-1",
+          "top": "qualification_counter",
+          "sim_top": "tb_qualification_counter",
+          "target_language": "Verilog",
+          "target_simulator": "XSim"
+        },
+        "fileset_properties": {
+          "discovery_status": "READY",
+          "errors": [],
+          "sources_1": {
+            "include_dirs": [],
+            "defines": {}
+          },
+          "sim_1": {
+            "include_dirs": [],
+            "defines": {}
+          }
+        },
+        "filesets": [
+          "sources_1",
+          "constrs_1",
+          "sim_1",
+          "utils_1"
+        ],
+        "runs": [
+          "synth_1",
+          "impl_1"
+        ],
+        "artifacts": {
+          "bitstream_files": [
+            "<redacted-local-identity>"
+          ]
+        }
+      },
+      "sources": {
+        "ok": true,
+        "status": "READY",
+        "error_codes": [],
+        "reasons": [],
+        "warnings": [],
+        "syntax": {
+          "ok": true,
+          "status": "READY",
+          "available": true,
+          "parsed": true,
+          "complete": true,
+          "attestation_valid": true,
+          "error_code": "",
+          "fileset": "sources_1",
+          "counts": {
+            "ERROR": 0,
+            "CRITICAL WARNING": 0,
+            "WARNING": 0,
+            "INFO": 0
+          },
+          "messages": []
+        },
+        "compile_order": {
+          "ok": true,
+          "status": "READY",
+          "available": true,
+          "parsed": true,
+          "complete": true,
+          "attestation_valid": true,
+          "error_code": "",
+          "fileset": "sources_1",
+          "top": "qualification_counter",
+          "files": [
+            {
+              "file_type": "SystemVerilog",
+              "exists": true,
+              "managed": false,
+              "used_in": "synthesis",
+              "order": 0
+            }
+          ],
+          "missing_files": [],
+          "duplicates": [],
+          "unknown_file_types": []
+        }
+      },
+      "constraints": {
+        "ok": true,
+        "error_code": "",
+        "status": "READY",
+        "findings": [],
+        "xdc_files": [
+          "<redacted-local-identity>"
+        ],
+        "xdc_file_discovery_status": "READY",
+        "xdc_file_discovery_reason": "",
+        "probe_statuses": {
+          "fileset_discovery_status": "READY",
+          "xdc_file_discovery_status": "READY",
+          "design_discovery_status": "READY",
+          "ports_discovery_status": "READY",
+          "clocks_discovery_status": "READY",
+          "generated_clocks_discovery_status": "READY",
+          "clock_report_discovery_status": "READY"
+        },
+        "discovery_errors": [],
+        "ports": [
+          "clk",
+          "count[0]",
+          "count[1]",
+          "count[2]",
+          "count[3]",
+          "rst_n"
+        ],
+        "clocks": [
+          "sys_clk"
+        ],
+        "generated_clocks": [],
+        "counts": {
+          "create_clock": 1,
+          "create_generated_clock": 0,
+          "set_clock_groups": 0,
+          "set_input_delay": 0,
+          "set_output_delay": 0,
+          "set_property": 11
+        },
+        "clock_summary": {
+          "ok": true,
+          "clocks": [
+            {
+              "name": "sys_clk",
+              "period_ns": 10.0
+            }
+          ]
+        }
+      },
+      "ip_status": {
+        "status": "READY",
+        "ips": [],
+        "findings": [],
+        "wire_trust": "VERSIONED"
+      },
+      "bd_validation": {
+        "status": "READY",
+        "wire_trust": "VERSIONED",
+        "bd_files": [],
+        "designs": [],
+        "findings": []
+      },
+      "run_configurations": {
+        "status": "READY",
+        "runs": {
+          "synth_1": {
+            "ok": true,
+            "run": {
+              "name": "synth_1",
+              "flow": "Vivado Synthesis 2021",
+              "strategy": "Vivado Synthesis Defaults",
+              "status": "synth_design Complete!",
+              "progress": "100%",
+              "needs_refresh": "0",
+              "session_generation_id": "3506dcaf356a4d91bdc4bad18b249dc7"
+            },
+            "run_name": "synth_1"
+          },
+          "impl_1": {
+            "ok": true,
+            "run": {
+              "name": "impl_1",
+              "flow": "Vivado Implementation 2021",
+              "strategy": "Vivado Implementation Defaults",
+              "status": "write_bitstream Complete!",
+              "progress": "100%",
+              "needs_refresh": "0",
+              "session_generation_id": "3506dcaf356a4d91bdc4bad18b249dc7"
+            },
+            "run_name": "impl_1"
+          }
+        },
+        "findings": []
+      },
+      "artifact_manifest": {
+        "schema_version": 4,
+        "status": "READY",
+        "collection_id": "artifact_d5fac32c4b9e427fbb4613419388fd77",
+        "run_name": "impl_1",
+        "evidence_freshness": {
+          "status": "FRESH",
+          "run_name": "impl_1",
+          "collected_at": "2026-08-29T19:29:43Z",
+          "needs_refresh": false,
+          "source": "collect_build_artifacts",
+          "reasons": []
+        },
+        "run_snapshot": {
+          "run_name": "impl_1",
+          "status": "write_bitstream Complete!",
+          "progress": "100%",
+          "needs_refresh": "0",
+          "session_generation_id": "3506dcaf356a4d91bdc4bad18b249dc7",
+          "top": "qualification_counter",
+          "part": "xc7a35tcpg236-1",
+          "write_bitstream_step_enabled": "",
+          "write_bitstream_step_status": ""
+        },
+        "bitstream_origin": {
+          "status": "ATTESTED",
+          "policy": "vivado_canonical_path_plus_unique_output_plus_xilinx_header",
+          "top": "qualification_counter",
+          "part": "xc7a35tcpg236-1"
+        },
+        "run_execution_identity": {
+          "marker_source": "step_markers",
+          "markers": {
+            "init_design": {
+              "started": {
+                "size": 167,
+                "mtime_ns": 1788031715192884200,
+                "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+              },
+              "ended": {
+                "size": 0,
+                "mtime_ns": 1788031721222062600,
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              }
+            },
+            "opt_design": {
+              "started": {
+                "size": 167,
+                "mtime_ns": 1788031721222062600,
+                "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+              },
+              "ended": {
+                "size": 0,
+                "mtime_ns": 1788031728391913100,
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              }
+            },
+            "phys_opt_design": {
+              "started": {
+                "size": 167,
+                "mtime_ns": 1788031729616506000,
+                "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+              },
+              "ended": {
+                "size": 0,
+                "mtime_ns": 1788031729837144800,
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              }
+            },
+            "place_design": {
+              "started": {
+                "size": 167,
+                "mtime_ns": 1788031728391913100,
+                "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+              },
+              "ended": {
+                "size": 0,
+                "mtime_ns": 1788031729616506000,
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              }
+            },
+            "route_design": {
+              "started": {
+                "size": 167,
+                "mtime_ns": 1788031729838144200,
+                "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+              },
+              "ended": {
+                "size": 0,
+                "mtime_ns": 1788031739756292800,
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              }
+            },
+            "write_bitstream": {
+              "started": {
+                "size": 167,
+                "mtime_ns": 1788031763647937600,
+                "sha256": "e18d0ca24407aa3ea79dc936b5cb7b549973dc7d6208bb3777e936db0ff37641"
+              },
+              "ended": {
+                "size": 0,
+                "mtime_ns": 1788031779141712500,
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              }
+            }
+          },
+          "started_mtime_ns": 1788031715192884200,
+          "ended_mtime_ns": 1788031779141712500,
+          "write_bitstream_started_mtime_ns": 1788031763647937600,
+          "write_bitstream_ended_mtime_ns": 1788031779141712500
+        },
+        "design_execution_identity": {
+          "status": "READY",
+          "sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+          "identity": {
+            "schema_version": 1,
+            "project_name": "s01_counter",
+            "part": "xc7a35tcpg236-1",
+            "top": "qualification_counter",
+            "vivado_version_short": "2021.2",
+            "vivado_version_full": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+            "include_dirs": [],
+            "verilog_defines": [],
+            "source_compile_order": [
+              {
+                "used_in": "synthesis",
+                "order": "0",
+                "type": "SystemVerilog",
+                "library": "xil_defaultlib"
+              }
+            ],
+            "constraint_compile_order": [
+              {
+                "used_in": "implementation",
+                "order": "0",
+                "type": "XDC"
+              },
+              {
+                "used_in": "synthesis",
+                "order": "0",
+                "type": "XDC"
+              }
+            ],
+            "run_configurations": [
+              {
+                "run": "impl_1",
+                "property": "AUTO_INCREMENTAL_CHECKPOINT",
+                "value": "0"
+              },
+              {
+                "run": "impl_1",
+                "property": "CONSTRSET",
+                "value": "constrs_1"
+              },
+              {
+                "run": "impl_1",
+                "property": "FLOW",
+                "value": "Vivado Implementation 2021"
+              },
+              {
+                "run": "impl_1",
+                "property": "INCREMENTAL_CHECKPOINT",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "PART",
+                "value": "xc7a35tcpg236-1"
+              },
+              {
+                "run": "impl_1",
+                "property": "SRCSET",
+                "value": "sources_1"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+                "value": "1"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+                "value": "1"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+                "value": "0"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+                "value": "0"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STRATEGY",
+                "value": "Vivado Implementation Defaults"
+              },
+              {
+                "run": "synth_1",
+                "property": "AUTO_INCREMENTAL_CHECKPOINT",
+                "value": "1"
+              },
+              {
+                "run": "synth_1",
+                "property": "CONSTRSET",
+                "value": "constrs_1"
+              },
+              {
+                "run": "synth_1",
+                "property": "FLOW",
+                "value": "Vivado Synthesis 2021"
+              },
+              {
+                "run": "synth_1",
+                "property": "INCREMENTAL_CHECKPOINT",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "PART",
+                "value": "xc7a35tcpg236-1"
+              },
+              {
+                "run": "synth_1",
+                "property": "SRCSET",
+                "value": "sources_1"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+                "value": "auto"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+                "value": "rebuilt"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+                "value": "auto"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+                "value": "0"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+                "value": "0"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+                "value": "auto"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+                "value": "0"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+                "value": "3"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STRATEGY",
+                "value": "Vivado Synthesis Defaults"
+              }
+            ],
+            "composite_inputs": [],
+            "files": [
+              {
+                "size": 295,
+                "mtime_ns": 1788031596450160200,
+                "sha256": "2ae6a7893b4f6f2e1566a341128daac14c6c9439cdbf70a10b8b27c9295c2d90",
+                "object_identity": [
+                  9267985230617076758,
+                  7318349397669543,
+                  33206
+                ],
+                "nlink": 1,
+                "source_kind": "compile_source"
+              },
+              {
+                "size": 607,
+                "mtime_ns": 1788031596450160200,
+                "sha256": "afee90c3fb9b11d2869588b0ba6313d9d867abf3682347718a1cd628e187939b",
+                "object_identity": [
+                  9267985230617076758,
+                  5348024560695018,
+                  33206
+                ],
+                "nlink": 1,
+                "source_kind": "constraint"
+              }
+            ],
+            "include_files": []
+          },
+          "issues": []
+        },
+        "design_execution_identity_sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+        "artifacts": [
+          {
+            "size": 2325,
+            "sha256": "3e65909f4b1febbb3c07b4801f73c5387ee7a00be7695b5a67d4c8fcee79a76c",
+            "source_sha256": "3e65909f4b1febbb3c07b4801f73c5387ee7a00be7695b5a67d4c8fcee79a76c",
+            "source_mtime_ns": 1788031721222062600,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 11614,
+            "sha256": "1c3b20c0478566d92b631c89476102bba9b8f44f4ac062a7b605e8f320876ac1",
+            "source_sha256": "1c3b20c0478566d92b631c89476102bba9b8f44f4ac062a7b605e8f320876ac1",
+            "source_mtime_ns": 1788031728390920600,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 2058,
+            "sha256": "5bd5dce9e35b704793c4cd05a1ca24d339ae0626f5cd946d28748fbae9be453e",
+            "source_sha256": "5bd5dce9e35b704793c4cd05a1ca24d339ae0626f5cd946d28748fbae9be453e",
+            "source_mtime_ns": 1788031729837144800,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 22181,
+            "sha256": "30e1d6e3f3656626544d7e8f63258c969bce8bb727defd1f9133459492c2b552",
+            "source_sha256": "30e1d6e3f3656626544d7e8f63258c969bce8bb727defd1f9133459492c2b552",
+            "source_mtime_ns": 1788031729616506000,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 2192129,
+            "sha256": "9ee72066ec9e07b64bf5370fbf66c5dc8a269d1c18b1759fa8a341189a661b9e",
+            "source_sha256": "9ee72066ec9e07b64bf5370fbf66c5dc8a269d1c18b1759fa8a341189a661b9e",
+            "source_mtime_ns": 1788031778996230800,
+            "category": "bitstream",
+            "bitstream_header": {
+              "format": "xilinx_bit_v1",
+              "design": "qualification_counter;UserID=0XFFFFFFFF;Version=2021.2",
+              "part": "7a35tcpg236",
+              "date": "2026/08/30",
+              "time": "03:29:38",
+              "payload_offset": 117,
+              "payload_size": 2192012,
+              "file_size": 2192129
+            }
+          },
+          {
+            "size": 30,
+            "sha256": "8022a3801e0d9eed3a5559af22ee8b8d82a70a55cd06a3c10d5bc00f95f7b238",
+            "source_sha256": "8022a3801e0d9eed3a5559af22ee8b8d82a70a55cd06a3c10d5bc00f95f7b238",
+            "source_mtime_ns": 1788031739755291500,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 1005,
+            "sha256": "88f71672336e32222d8b1de23166968c30de0d121979b010760531e773723fae",
+            "source_sha256": "88f71672336e32222d8b1de23166968c30de0d121979b010760531e773723fae",
+            "source_mtime_ns": 1788031739755291500,
+            "category": "report"
+          },
+          {
+            "size": 1180,
+            "sha256": "d4f4a5f3466416a6dd4dda3c589539b4a1e07b76c222b9c1cde0d0106bd06842",
+            "source_sha256": "d4f4a5f3466416a6dd4dda3c589539b4a1e07b76c222b9c1cde0d0106bd06842",
+            "source_mtime_ns": 1788031739755291500,
+            "category": "report"
+          },
+          {
+            "size": 10893,
+            "sha256": "fa4af48eaf750217bb1a8d91481addafbd827bde7115454feed33665d66a616c",
+            "source_sha256": "fa4af48eaf750217bb1a8d91481addafbd827bde7115454feed33665d66a616c",
+            "source_mtime_ns": 1788031739753291700,
+            "category": "report"
+          },
+          {
+            "size": 3725,
+            "sha256": "1d146a5506c194212df511d9fd96874d4180a0b554253f65e94d99ff16b6bc2d",
+            "source_sha256": "1d146a5506c194212df511d9fd96874d4180a0b554253f65e94d99ff16b6bc2d",
+            "source_mtime_ns": 1788031729615505100,
+            "category": "report"
+          },
+          {
+            "size": 37,
+            "sha256": "31eb1df8ed34f4d1c42efcf98ce14ef7aff2bdb2095056a808576c92d3269145",
+            "source_sha256": "31eb1df8ed34f4d1c42efcf98ce14ef7aff2bdb2095056a808576c92d3269145",
+            "source_mtime_ns": 1788031728390920600,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 1383,
+            "sha256": "6c14532ebba9badbcb10181a8b4610c10742bc393fbbc4db74ab92203d7941ff",
+            "source_sha256": "6c14532ebba9badbcb10181a8b4610c10742bc393fbbc4db74ab92203d7941ff",
+            "source_mtime_ns": 1788031728390920600,
+            "category": "report"
+          },
+          {
+            "size": 112,
+            "sha256": "7ba7813604abba558d36d10947876bbc5c455d0c99eb521014653deac8dc3e2a",
+            "source_sha256": "7ba7813604abba558d36d10947876bbc5c455d0c99eb521014653deac8dc3e2a",
+            "source_mtime_ns": 1788031728390920600,
+            "category": "report"
+          },
+          {
+            "size": 37,
+            "sha256": "31eb1df8ed34f4d1c42efcf98ce14ef7aff2bdb2095056a808576c92d3269145",
+            "source_sha256": "31eb1df8ed34f4d1c42efcf98ce14ef7aff2bdb2095056a808576c92d3269145",
+            "source_mtime_ns": 1788031739265269500,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 1393,
+            "sha256": "78cdea5b0d46e0ac64df8d4404405b5ed602f928561e7f63bbd39f44774dd131",
+            "source_sha256": "78cdea5b0d46e0ac64df8d4404405b5ed602f928561e7f63bbd39f44774dd131",
+            "source_mtime_ns": 1788031739265269500,
+            "category": "report"
+          },
+          {
+            "size": 113,
+            "sha256": "61b8ea878923214ecabffe0607eddb372664f20b95e96c5ffd2020deb6f99ef6",
+            "source_sha256": "61b8ea878923214ecabffe0607eddb372664f20b95e96c5ffd2020deb6f99ef6",
+            "source_mtime_ns": 1788031739265269500,
+            "category": "report"
+          },
+          {
+            "size": 73853,
+            "sha256": "92baa36000857af73d6118848f9f8df18166961adacad88dc94a3015792a72e5",
+            "source_sha256": "92baa36000857af73d6118848f9f8df18166961adacad88dc94a3015792a72e5",
+            "source_mtime_ns": 1788031729606995400,
+            "category": "report"
+          },
+          {
+            "size": 52,
+            "sha256": "0d8cb8c08d304940851be5e3b5be99ff92f98ba7ac400b590a340ed1ca31fd02",
+            "source_sha256": "0d8cb8c08d304940851be5e3b5be99ff92f98ba7ac400b590a340ed1ca31fd02",
+            "source_mtime_ns": 1788031739622913800,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 2402,
+            "sha256": "097365cda27642c1074f5f8bca35fb80f80f783c2d9ca0f908fe8524cf673464",
+            "source_sha256": "097365cda27642c1074f5f8bca35fb80f80f783c2d9ca0f908fe8524cf673464",
+            "source_mtime_ns": 1788031739622913800,
+            "category": "report"
+          },
+          {
+            "size": 1348,
+            "sha256": "b8b05641f32ec1a7167e4d7cc958c9feabe187420862ad3fdcd833a2c0d6abe8",
+            "source_sha256": "b8b05641f32ec1a7167e4d7cc958c9feabe187420862ad3fdcd833a2c0d6abe8",
+            "source_mtime_ns": 1788031739622913800,
+            "category": "report"
+          },
+          {
+            "size": 125115,
+            "sha256": "c885e781612ece3fb5294cde79c9c97f70ad85c11de47ba4ddc33da4b06fe829",
+            "source_sha256": "c885e781612ece3fb5294cde79c9c97f70ad85c11de47ba4ddc33da4b06fe829",
+            "source_mtime_ns": 1788031727459850600,
+            "category": "checkpoint"
+          },
+          {
+            "size": 135010,
+            "sha256": "51818884816ef9668913ec24510faa9a1765e253d39d0fa349f3509084207fd8",
+            "source_sha256": "51818884816ef9668913ec24510faa9a1765e253d39d0fa349f3509084207fd8",
+            "source_mtime_ns": 1788031729835143700,
+            "category": "checkpoint"
+          },
+          {
+            "size": 132246,
+            "sha256": "5d12f21052b9a744bd88f0dfd4cae276ab6609409854fa96bcd9d4d83e0e8c4f",
+            "source_sha256": "5d12f21052b9a744bd88f0dfd4cae276ab6609409854fa96bcd9d4d83e0e8c4f",
+            "source_mtime_ns": 1788031729578071600,
+            "category": "checkpoint"
+          },
+          {
+            "size": 8436,
+            "sha256": "e04fd714cab316ac10c5f92717b352075ea79982053979e105125fe61493715d",
+            "source_sha256": "e04fd714cab316ac10c5f92717b352075ea79982053979e105125fe61493715d",
+            "source_mtime_ns": 1788031739718497700,
+            "category": "report"
+          },
+          {
+            "size": 7208,
+            "sha256": "698e0e5e847a25bfe1f913414ba28a12f61fee205a5c14faeafb7997082f6285",
+            "source_sha256": "698e0e5e847a25bfe1f913414ba28a12f61fee205a5c14faeafb7997082f6285",
+            "source_mtime_ns": 1788031739710145600,
+            "category": "report"
+          },
+          {
+            "size": 728,
+            "sha256": "cf9f1bc1dc02be8794ce2a534e458cd60dfe8103cf98d1974d58d0cc8749a124",
+            "source_sha256": "cf9f1bc1dc02be8794ce2a534e458cd60dfe8103cf98d1974d58d0cc8749a124",
+            "source_mtime_ns": 1788031739718497700,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 43,
+            "sha256": "8f357e8d3a9d9fa83a11681dd92b5a7d1b63024d6850a22cc6dfe96866d2dd38",
+            "source_sha256": "8f357e8d3a9d9fa83a11681dd92b5a7d1b63024d6850a22cc6dfe96866d2dd38",
+            "source_mtime_ns": 1788031739721293200,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 588,
+            "sha256": "da3ce2b5e1aec8c354c3bda486f4a4cc7898ab96e4eb09dff443ab80e3fabce3",
+            "source_sha256": "da3ce2b5e1aec8c354c3bda486f4a4cc7898ab96e4eb09dff443ab80e3fabce3",
+            "source_mtime_ns": 1788031739721293200,
+            "category": "report"
+          },
+          {
+            "size": 136315,
+            "sha256": "d620c26c0eaa44beb9b7fe658732d80f7d080b42de67c1cc20d5c3ecebcf10c3",
+            "source_sha256": "d620c26c0eaa44beb9b7fe658732d80f7d080b42de67c1cc20d5c3ecebcf10c3",
+            "source_mtime_ns": 1788031738635399000,
+            "category": "checkpoint"
+          },
+          {
+            "size": 106,
+            "sha256": "2b5a991f25c6e6d1c409aefab0dda7cce96f5f5c4447115465b635f9c9aac0cf",
+            "source_sha256": "2b5a991f25c6e6d1c409aefab0dda7cce96f5f5c4447115465b635f9c9aac0cf",
+            "source_mtime_ns": 1788031739724293900,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 80894,
+            "sha256": "382776b365c7fa1a8d84a5b999cb890e24a13a0d9aef5037c08713a30bf9d731",
+            "source_sha256": "382776b365c7fa1a8d84a5b999cb890e24a13a0d9aef5037c08713a30bf9d731",
+            "source_mtime_ns": 1788031739727293400,
+            "category": "report"
+          },
+          {
+            "size": 63689,
+            "sha256": "24e48478f8a5f9d2b427d2c1559ba7960ac87b3758229c5cca40d44b34cfb4e2",
+            "source_sha256": "24e48478f8a5f9d2b427d2c1559ba7960ac87b3758229c5cca40d44b34cfb4e2",
+            "source_mtime_ns": 1788031739727293400,
+            "category": "report"
+          },
+          {
+            "size": 276,
+            "sha256": "7b99b9f036514e438f7654b49d21e43c4e09223cb36fdbaf8f10a346c76bc70c",
+            "source_sha256": "7b99b9f036514e438f7654b49d21e43c4e09223cb36fdbaf8f10a346c76bc70c",
+            "source_mtime_ns": 1788031729612504100,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 9874,
+            "sha256": "89ffb613482e4c9b6e3b205146833af84ed0db68ccf21ae9ee6b8516cdbba122",
+            "source_sha256": "89ffb613482e4c9b6e3b205146833af84ed0db68ccf21ae9ee6b8516cdbba122",
+            "source_mtime_ns": 1788031729612504100,
+            "category": "report"
+          },
+          {
+            "size": 16010,
+            "sha256": "8fbd0e5b12f15faf82d6294c58987ea9ab85104791f1727a2fb3106c531e8dbe",
+            "source_sha256": "8fbd0e5b12f15faf82d6294c58987ea9ab85104791f1727a2fb3106c531e8dbe",
+            "source_mtime_ns": 1788031739755291500,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 149,
+            "sha256": "b3934c8d0fd15a37456d33e0fa8a988f8fb8d3b429ee7490ac85f82199ee6a3c",
+            "source_sha256": "b3934c8d0fd15a37456d33e0fa8a988f8fb8d3b429ee7490ac85f82199ee6a3c",
+            "source_mtime_ns": 1788031779146722800,
+            "category": "vivado_metadata"
+          },
+          {
+            "size": 5768,
+            "sha256": "ff2ce7715d86dd24f79270df3a46b9f5794d2f7d19ab6061fe3165129e03b9a3",
+            "source_sha256": "ff2ce7715d86dd24f79270df3a46b9f5794d2f7d19ab6061fe3165129e03b9a3",
+            "source_mtime_ns": 1788031779140718900,
+            "category": "vivado_metadata"
+          }
+        ],
+        "manifest_sha256": "2454a7f2fe0f60ad9febe729c633496b608f49b5766f92e7c2251fd3f621e762"
+      },
+      "artifact_validation": {
+        "status": "READY",
+        "error_code": "",
+        "message": "Artifact manifest loaded and strictly validated."
+      },
+      "report_manifest": {
+        "schema_version": 4,
+        "status": "WARN",
+        "run_name": "impl_1",
+        "vivado_version_short": "2021.2",
+        "vivado_build": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+        "report_command_schema": "vivado_2021_2_v1",
+        "collection_id": "report_7f75ff2b8fb9456080c4e8a08b070fe8",
+        "expected_report_count": 9,
+        "generated_report_count": 8,
+        "report_status": [
+          {
+            "category": "timing",
+            "filename": "timing_summary.rpt",
+            "present": true,
+            "current": true,
+            "command_status": "generated",
+            "mtime_ms": 1788031795311,
+            "collection_started_ms": 1788031786610,
+            "status": "current",
+            "reason": ""
+          },
+          {
+            "category": "utilization",
+            "filename": "utilization.rpt",
+            "present": true,
+            "current": true,
+            "command_status": "generated",
+            "mtime_ms": 1788031795316,
+            "collection_started_ms": 1788031786610,
+            "status": "current",
+            "reason": ""
+          },
+          {
+            "category": "drc",
+            "filename": "drc.rpt",
+            "present": true,
+            "current": true,
+            "command_status": "generated",
+            "mtime_ms": 1788031796178,
+            "collection_started_ms": 1788031786610,
+            "status": "current",
+            "reason": ""
+          },
+          {
+            "category": "methodology",
+            "filename": "methodology.rpt",
+            "present": true,
+            "current": true,
+            "command_status": "generated",
+            "mtime_ms": 1788031796522,
+            "collection_started_ms": 1788031786610,
+            "status": "current",
+            "reason": ""
+          },
+          {
+            "category": "qor",
+            "filename": "qor_summary.rpt",
+            "present": true,
+            "current": false,
+            "command_status": "unavailable",
+            "mtime_ms": 1788031785373,
+            "collection_started_ms": 1788031786610,
+            "status": "stale",
+            "reason": "qor_summary.rpt was not generated; report_qor_summary status=unavailable; message=report_qor_summary command is unavailable in this Vivado version.",
+            "optional": true,
+            "optional_due_to_vivado_version": true,
+            "severity": "info",
+            "user_message": "Vivado does not support report_qor_summary in this version; this is not a design failure."
+          },
+          {
+            "category": "cdc",
+            "filename": "cdc.rpt",
+            "present": true,
+            "current": true,
+            "command_status": "generated",
+            "mtime_ms": 1788031796529,
+            "collection_started_ms": 1788031786610,
+            "status": "current",
+            "reason": ""
+          },
+          {
+            "category": "clock_interaction",
+            "filename": "clock_interaction.rpt",
+            "present": true,
+            "current": true,
+            "command_status": "generated",
+            "mtime_ms": 1788031796535,
+            "collection_started_ms": 1788031786610,
+            "status": "current",
+            "reason": ""
+          },
+          {
+            "category": "power",
+            "filename": "power.rpt",
+            "present": true,
+            "current": true,
+            "command_status": "generated",
+            "mtime_ms": 1788031796597,
+            "collection_started_ms": 1788031786610,
+            "status": "current",
+            "reason": ""
+          },
+          {
+            "category": "messages",
+            "filename": "messages.log",
+            "present": true,
+            "current": true,
+            "command_status": "generated",
+            "mtime_ms": 1788031796609,
+            "collection_started_ms": 1788031786610,
+            "status": "current",
+            "reason": ""
+          }
+        ],
+        "missing_reports": [
+          {
+            "category": "qor",
+            "filename": "qor_summary.rpt",
+            "present": true,
+            "current": false,
+            "command_status": "unavailable",
+            "mtime_ms": 1788031785373,
+            "collection_started_ms": 1788031786610,
+            "status": "stale",
+            "reason": "qor_summary.rpt was not generated; report_qor_summary status=unavailable; message=report_qor_summary command is unavailable in this Vivado version.",
+            "optional": true,
+            "optional_due_to_vivado_version": true,
+            "severity": "info",
+            "user_message": "Vivado does not support report_qor_summary in this version; this is not a design failure."
+          }
+        ],
+        "required_missing_reports": [],
+        "command_outcomes": {
+          "timing": {
+            "status": "generated",
+            "message": "report_timing_summary completed"
+          },
+          "utilization": {
+            "status": "generated",
+            "message": "report_utilization completed"
+          },
+          "drc": {
+            "status": "generated",
+            "message": "report_drc completed"
+          },
+          "methodology": {
+            "status": "generated",
+            "message": "report_methodology completed"
+          },
+          "qor": {
+            "status": "unavailable",
+            "message": "report_qor_summary command is unavailable in this Vivado version"
+          },
+          "cdc": {
+            "status": "generated",
+            "message": "report_cdc completed"
+          },
+          "clock_interaction": {
+            "status": "generated",
+            "message": "report_clock_interaction completed"
+          },
+          "power": {
+            "status": "generated",
+            "message": "report_power completed"
+          },
+          "messages": {
+            "status": "generated",
+            "message": "scanned complete current runme.log for diagnostic messages"
+          }
+        },
+        "run_snapshot": {
+          "run_name": "impl_1",
+          "status": "write_bitstream Complete!",
+          "progress": "100%",
+          "needs_refresh": "0",
+          "session_generation_id": "3506dcaf356a4d91bdc4bad18b249dc7"
+        },
+        "evidence_freshness": {
+          "status": "FRESH",
+          "run_name": "impl_1",
+          "collection_id": "report_7f75ff2b8fb9456080c4e8a08b070fe8",
+          "collected_at": "2026-08-29T19:29:56Z",
+          "collection_started_ms": "1788031786610",
+          "needs_refresh": false,
+          "source": "collect_report_bundle",
+          "reasons": []
+        },
+        "source_log_evidence": {
+          "status": "FRESH",
+          "size": 37188,
+          "mtime": 1788031779,
+          "sha256": "8c251c8cc3f3393d05d01502a7f1d3c36bc51e2d69d174ebda0c0e858d6a207a",
+          "complete_scan": true,
+          "source_stable": true,
+          "messages_extracted_count": 0,
+          "reasons": []
+        },
+        "design_execution_identity": {
+          "status": "READY",
+          "sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+          "identity": {
+            "schema_version": 1,
+            "project_name": "s01_counter",
+            "part": "xc7a35tcpg236-1",
+            "top": "qualification_counter",
+            "vivado_version_short": "2021.2",
+            "vivado_version_full": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+            "include_dirs": [],
+            "verilog_defines": [],
+            "source_compile_order": [
+              {
+                "used_in": "synthesis",
+                "order": "0",
+                "type": "SystemVerilog",
+                "library": "xil_defaultlib"
+              }
+            ],
+            "constraint_compile_order": [
+              {
+                "used_in": "implementation",
+                "order": "0",
+                "type": "XDC"
+              },
+              {
+                "used_in": "synthesis",
+                "order": "0",
+                "type": "XDC"
+              }
+            ],
+            "run_configurations": [
+              {
+                "run": "impl_1",
+                "property": "AUTO_INCREMENTAL_CHECKPOINT",
+                "value": "0"
+              },
+              {
+                "run": "impl_1",
+                "property": "CONSTRSET",
+                "value": "constrs_1"
+              },
+              {
+                "run": "impl_1",
+                "property": "FLOW",
+                "value": "Vivado Implementation 2021"
+              },
+              {
+                "run": "impl_1",
+                "property": "INCREMENTAL_CHECKPOINT",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "PART",
+                "value": "xc7a35tcpg236-1"
+              },
+              {
+                "run": "impl_1",
+                "property": "SRCSET",
+                "value": "sources_1"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+                "value": "1"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+                "value": "1"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+                "value": "0"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+                "value": "0"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "impl_1",
+                "property": "STRATEGY",
+                "value": "Vivado Implementation Defaults"
+              },
+              {
+                "run": "synth_1",
+                "property": "AUTO_INCREMENTAL_CHECKPOINT",
+                "value": "1"
+              },
+              {
+                "run": "synth_1",
+                "property": "CONSTRSET",
+                "value": "constrs_1"
+              },
+              {
+                "run": "synth_1",
+                "property": "FLOW",
+                "value": "Vivado Synthesis 2021"
+              },
+              {
+                "run": "synth_1",
+                "property": "INCREMENTAL_CHECKPOINT",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "PART",
+                "value": "xc7a35tcpg236-1"
+              },
+              {
+                "run": "synth_1",
+                "property": "SRCSET",
+                "value": "sources_1"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+                "value": "auto"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+                "value": "Default"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+                "value": "rebuilt"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+                "value": "auto"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+                "value": "0"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+                "value": "0"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+                "value": "auto"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+                "value": "0"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+                "value": "3"
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+                "value": ""
+              },
+              {
+                "run": "synth_1",
+                "property": "STRATEGY",
+                "value": "Vivado Synthesis Defaults"
+              }
+            ],
+            "composite_inputs": [],
+            "files": [
+              {
+                "size": 295,
+                "mtime_ns": 1788031596450160200,
+                "sha256": "2ae6a7893b4f6f2e1566a341128daac14c6c9439cdbf70a10b8b27c9295c2d90",
+                "object_identity": [
+                  9267985230617076758,
+                  7318349397669543,
+                  33206
+                ],
+                "nlink": 1,
+                "source_kind": "compile_source"
+              },
+              {
+                "size": 607,
+                "mtime_ns": 1788031596450160200,
+                "sha256": "afee90c3fb9b11d2869588b0ba6313d9d867abf3682347718a1cd628e187939b",
+                "object_identity": [
+                  9267985230617076758,
+                  5348024560695018,
+                  33206
+                ],
+                "nlink": 1,
+                "source_kind": "constraint"
+              }
+            ],
+            "include_files": []
+          },
+          "issues": []
+        },
+        "design_execution_identity_sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+        "reports": [
+          {
+            "category": "cdc",
+            "size": 1153,
+            "sha256": "70c5d242abd19a0b5a2f79b3240261ef9e9240f59386da6584d11411192af92a"
+          },
+          {
+            "category": "clock_interaction",
+            "size": 1859,
+            "sha256": "59372c5ea8e7058fe265c490db9e3ca230860fdb974fb178f6b727b6954a8145"
+          },
+          {
+            "category": "drc",
+            "size": 1688,
+            "sha256": "bc9296d828b8b601249db5030b6e83c3d173b7c1ad8732af1d267e78d598d2b9"
+          },
+          {
+            "category": "messages",
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "category": "methodology",
+            "size": 2613,
+            "sha256": "325702153de85bbecffe64bf4f9145fc96ba6cde9479793a397887b84b70859b"
+          },
+          {
+            "category": "power",
+            "size": 8697,
+            "sha256": "67bbdf58bdefbef87706dbf02b979d6ef8ea1ae4bd3a43e57db5dce6b987f9bb"
+          },
+          {
+            "category": "timing",
+            "size": 17811,
+            "sha256": "5c4ae5743457bd0139e1797796a6d775b95a20763e424e035f706ac211eec853"
+          },
+          {
+            "category": "utilization",
+            "size": 10267,
+            "sha256": "97362f9c7062f23a528876536020d50ebb1c67bdbb0124ff49c74de49f648ef5"
+          }
+        ],
+        "manifest_sha256": "6f11811014771da18c2478f030368e5014b098eeeab7cc308179bc9abf17d8d5"
+      },
+      "signoff": {
+        "ok": true,
+        "status": "WARN",
+        "effective_status": "WARN",
+        "validation_scope": "pre_hardware_software",
+        "ready_meaning": "READY means the no-board Vivado software evidence is clean enough for handoff; it is not real FPGA board validation.",
+        "reasons": [],
+        "warnings": [
+          "check_timing reports no_input_delay=1",
+          "check_timing reports no_output_delay=4",
+          "Methodology contains 5 warning(s)"
+        ],
+        "warning_review_guidance": {
+          "io_delay": {
+            "reviewable_without_board": true,
+            "summary": "no_input_delay=1, no_output_delay=4",
+            "agent_instruction": "In the no-board phase, missing input/output delay warnings may be accepted only as a reviewable WARN handoff; do not report the bundle as READY or hardware-validated.",
+            "required_review_note": "Record that board-level IO timing requirements are not yet available, or add input/output delay constraints before handoff.",
+            "rerun_condition": "When board-level IO timing requirements are provided, add the XDC constraints and rerun timing, signoff, audit, and diagnostic bundle validation."
+          }
+        },
+        "next_steps": [
+          "Review warning findings and decide whether project-specific waivers are justified.",
+          "Run check_timing_constraints and analyze_timing_closure; fix XDC/timing readiness blockers.",
+          "Run get_methodology_report and resolve methodology errors before bitstream handoff.",
+          "Keep collect_report_bundle output with the diagnostic bundle for handoff."
+        ],
+        "next_actions": [
+          {
+            "tool": "check_timing_constraints",
+            "reason": "Check unconstrained clocks and endpoints before timing closure.",
+            "required_args": [],
+            "arg_sources": {},
+            "preconditions": [
+              "Implementation result is open."
+            ],
+            "stop_condition": "check_timing_constraints status is READY.",
+            "optional": false
+          },
+          {
+            "tool": "analyze_timing_closure",
+            "reason": "Aggregate timing, DRC, methodology, and critical-message blockers.",
+            "required_args": [],
+            "arg_sources": {},
+            "preconditions": [
+              "Implementation result is open."
+            ],
+            "stop_condition": "analyze_timing_closure status is READY.",
+            "optional": false
+          },
+          {
+            "tool": "get_methodology_report",
+            "reason": "Inspect methodology errors before bitstream handoff.",
+            "required_args": [],
+            "arg_sources": {},
+            "preconditions": [
+              "Implementation result is open."
+            ],
+            "stop_condition": "methodology report has no ERROR or CRITICAL WARNING.",
+            "optional": false
+          },
+          {
+            "tool": "collect_report_bundle",
+            "reason": "Refresh report evidence after signoff findings are addressed.",
+            "required_args": [
+              "run_name"
+            ],
+            "arg_sources": {
+              "run_name": "workflow.run_name or current implementation run"
+            },
+            "preconditions": [
+              "Implementation results are available."
+            ],
+            "stop_condition": "report_manifest.json is written.",
+            "optional": true
+          }
+        ],
+        "configuration_voltage": {
+          "ok": true,
+          "status": "READY",
+          "cfgbvs": "VCCO",
+          "config_voltage": "3.3",
+          "warnings": []
+        },
+        "hardware_validation": {
+          "status": "NOT_VALIDATED",
+          "validated": false,
+          "real_board_required": true,
+          "scope": "pre-hardware software flow only",
+          "message": "Generated with no real FPGA board validation; real hardware bring-up is deferred."
+        },
+        "inputs": {
+          "sources": {
+            "ok": true,
+            "status": "READY",
+            "error_codes": [],
+            "reasons": [],
+            "warnings": [],
+            "syntax": {
+              "ok": true,
+              "status": "READY",
+              "available": true,
+              "parsed": true,
+              "complete": true,
+              "attestation_valid": true,
+              "error_code": "",
+              "fileset": "sources_1",
+              "counts": {
+                "ERROR": 0,
+                "CRITICAL WARNING": 0,
+                "WARNING": 0,
+                "INFO": 0
+              },
+              "messages": []
+            },
+            "compile_order": {
+              "ok": true,
+              "status": "READY",
+              "available": true,
+              "parsed": true,
+              "complete": true,
+              "attestation_valid": true,
+              "error_code": "",
+              "fileset": "sources_1",
+              "top": "qualification_counter",
+              "files": [
+                {
+                  "file_type": "SystemVerilog",
+                  "exists": true,
+                  "managed": false,
+                  "used_in": "synthesis",
+                  "order": 0
+                }
+              ],
+              "missing_files": [],
+              "duplicates": [],
+              "unknown_file_types": []
+            }
+          },
+          "elaboration": {
+            "ok": true,
+            "status": "READY",
+            "available": true,
+            "parsed": true,
+            "complete": true,
+            "attestation_valid": true,
+            "error_code": "",
+            "top": "qualification_counter",
+            "part": "xc7a35tcpg236-1",
+            "counts": {
+              "ERROR": 0,
+              "CRITICAL WARNING": 0,
+              "WARNING": 0,
+              "INFO": 0
+            },
+            "messages": [],
+            "unresolved_modules": [],
+            "black_box_count": 0,
+            "width_mismatch_count": 0
+          },
+          "simulation": {
+            "ok": true,
+            "status": "completed",
+            "status_source": "simulation_invocation_log_span",
+            "simulation_invocation_id": "sim_5738f348b2b44acea76583c24304057c",
+            "simulation_source_identity_sha256": "3b1b3623cd433518fa21e1fbd071b720816d4e0d18035ada6eeffe4ba3d8cfab",
+            "simulation_stable_input_identity_sha256": "4f9f4fdf72c7e4f5d5180dab709caa70ef8d3e9dc076568b178037cc80382751",
+            "session_generation_id": "3506dcaf356a4d91bdc4bad18b249dc7",
+            "started_at": "2026-08-29T19:27:16.831244+00:00",
+            "ended_at": "2026-08-29T19:27:41Z",
+            "simulation_context": {
+              "project_name": "s01_counter",
+              "simset": "sim_1",
+              "sim_top": "tb_qualification_counter",
+              "source_snapshot_before": [
+                "<redacted-local-identity>",
+                "<redacted-local-identity>"
+              ],
+              "source_snapshot_after": [
+                "<redacted-local-identity>",
+                "<redacted-local-identity>"
+              ],
+              "include_dirs_before": [],
+              "include_dirs_after": [],
+              "verilog_defines_before": [],
+              "verilog_defines_after": [],
+              "target_simulator_before": "XSim",
+              "target_simulator_after": "XSim"
+            },
+            "evidence_freshness": {
+              "status": "FRESH",
+              "reasons": [],
+              "same_project": true,
+              "same_simset": true,
+              "same_sources": true
+            },
+            "log_span": {
+              "previous_size": 0,
+              "previous_mtime": 0,
+              "current_size": 511,
+              "current_mtime": 1788031661,
+              "start": 0,
+              "end": 511,
+              "reset_detected": false,
+              "settle_wait_ms": 1,
+              "settle_terminal_detected": true
+            },
+            "counts": {
+              "ERROR": 0,
+              "CRITICAL WARNING": 0,
+              "WARNING": 0,
+              "INFO": 0
+            },
+            "messages": [],
+            "diagnosis": {
+              "primary_cause": "testbench_pass",
+              "causes": [
+                "testbench_pass"
+              ],
+              "status": "completed",
+              "warnings": [],
+              "info": []
+            },
+            "simulation_diagnosis": {
+              "primary_cause": "testbench_pass",
+              "causes": [
+                "testbench_pass"
+              ],
+              "status": "completed",
+              "warnings": [],
+              "info": []
+            },
+            "vcd_conflict": false,
+            "vcd_conflict_severity": "",
+            "vcd_export_mode": "disabled",
+            "mcp_vcd_export_mode": "disabled",
+            "export_vcd_requested": false,
+            "vcd_limit_bytes": 67108864,
+            "vcd_limit_exceeded": false,
+            "vcd_limit_stopped": false,
+            "run_tcl_failed": false,
+            "run_error": "",
+            "breakpoints_cleared": true,
+            "testbench_vcd_usage": false,
+            "testbench_vcd_detected": false,
+            "artifacts": {
+              "wdb_files": [
+                {
+                  "size_bytes": 15930
+                }
+              ],
+              "vcd_files": [],
+              "wdb_total_bytes": 15930,
+              "vcd_total_bytes": 0,
+              "waveform_total_bytes": 15930,
+              "largest_vcd_file": {
+                "size_bytes": 0
+              }
+            },
+            "log_excerpt": "<redacted-local-identity>",
+            "simset": "sim_1",
+            "simulation_source_identity": {
+              "recorded_sha256": "3b1b3623cd433518fa21e1fbd071b720816d4e0d18035ada6eeffe4ba3d8cfab",
+              "current": {
+                "status": "READY",
+                "sha256": "c09370e1f84ce7047e04b9a2e92c6dca02503d11ef8caaacfcf5b8b61ab73809",
+                "identity": {
+                  "project_name": "s01_counter",
+                  "vivado_version_short": "2021.2",
+                  "vivado_version_full": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+                  "project_properties": [
+                    "<redacted-local-identity>"
+                  ],
+                  "simset_properties": [
+                    "Property                              Type     Read-only  Value\n32BIT                                 bool     false      0\nCLASS                                 string   true       fileset\nFILESET_TYPE                          string   true       SimulationSrcs\nFORCE_COMPILE_GLBL                    bool     false      0\nFORCE_NO_COMPILE_GLBL                 bool     false      0\nGENERATE_SCRIPTS_ONLY                 bool     false      0\nGENERIC                               string*  false      \nHBS.CONFIGURE_DESIGN_FOR_HIER_ACCESS  bool     false      1\nINCLUDE_DIRS                          string*  false      \nINCREMENTAL                           bool     false      0\nNAME                                  string   false      sim_1\nNEEDS_REFRESH                         bool     true       0\nNL.CELL                               string   false      \nNL.INCL_UNISIM_MODELS                 bool     false      0\nNL.PROCESS_CORNER                     string   false      slow\nNL.RENAME_TOP                         string   false      \nNL.SDF_ANNO                           bool     false      1\nNL.WRITE_ALL_OVERRIDES                bool     false      0\nRUNTIME                               string   false      1000ns\nSIMMODEL_VALUE_CHECK                  bool     false      1\nSOURCE_SET                            string   false      sources_1\nSYSTEMC_INCLUDE_DIRS                  string*  false      \nTOP                                   string   false      tb_qualification_counter\nTRANSPORT_INT_DELAY                   string   false      0\nTRANSPORT_PATH_DELAY                  string   false      0\nUNIFAST                               bool     false      0\nUNIT_UNDER_TEST                       string   false      0\nVERILOG_DEFINE                        string*  false      \nVERILOG_UPPERCASE                     bool     false      0\nXELAB.DEBUG_LEVEL                     enum     false      typical\nXELAB.DLL                             bool     false      0\nXELAB.LOAD_GLBL                       bool     false      1\nXELAB.MORE_OPTIONS                    string   false      \nXELAB.MT_LEVEL                        enum     false      auto\nXELAB.NOSORT                          bool     false      1\nXELAB.RANGECHECK                      bool     false      0\nXELAB.RELAX                           bool     false      1\nXELAB.SDF_DELAY                       enum     false      sdfmax\nXELAB.SNAPSHOT                        string   false      \nXSIM.COMPILE.TCL.PRE                  string   false      \nXSIM.COMPILE.XSC.MORE_OPTIONS         string   false      \nXSIM.COMPILE.XVHDL.MORE_OPTIONS       string   false      \nXSIM.COMPILE.XVHDL.NOSORT             bool     false      1\nXSIM.COMPILE.XVHDL.RELAX              bool     false      1\nXSIM.COMPILE.XVLOG.MORE_OPTIONS       string   false      \nXSIM.COMPILE.XVLOG.NOSORT             bool     false      1\nXSIM.COMPILE.XVLOG.RELAX              bool     false      1\nXSIM.ELABORATE.COVERAGE.CELLDEFINE    bool     false      0\nXSIM.ELABORATE.COVERAGE.DIR           string   false      \nXSIM.ELABORATE.COVERAGE.LIBRARY       bool     false      0\nXSIM.ELABORATE.COVERAGE.NAME          string   false      \nXSIM.ELABORATE.COVERAGE.TYPE          string   false      \nXSIM.ELABORATE.DEBUG_LEVEL            enum     false      typical\nXSIM.ELABORATE.LINK.C                 string   false      \nXSIM.ELABORATE.LINK.SYSC              string   false      \nXSIM.ELABORATE.LOAD_GLBL              bool     false      1\nXSIM.ELABORATE.MT_LEVEL               enum     false      auto\nXSIM.ELABORATE.RANGECHECK             bool     false      0\nXSIM.ELABORATE.RELAX                  bool     false      1\nXSIM.ELABORATE.SDF_DELAY              enum     false      sdfmax\nXSIM.ELABORATE.SNAPSHOT               string   false      \nXSIM.ELABORATE.XELAB.MORE_OPTIONS     string   false      \nXSIM.ELABORATE.XSC.MORE_OPTIONS       string   false      \nXSIM.MORE_OPTIONS                     string   false      \nXSIM.SAIF                             string   false      \nXSIM.SIMULATE.ADD_POSITIONAL          bool     false      0\nXSIM.SIMULATE.CUSTOM_TCL              string   false      \nXSIM.SIMULATE.LOG_ALL_SIGNALS         bool     false      0\nXSIM.SIMULATE.NO_QUIT                 bool     false      0\nXSIM.SIMULATE.RUNTIME                 string   false      1000ns\nXSIM.SIMULATE.SAIF                    string   false      \nXSIM.SIMULATE.SAIF_ALL_SIGNALS        bool     false      0\nXSIM.SIMULATE.SAIF_SCOPE              string   false      \nXSIM.SIMULATE.TCL.POST                string   false      \nXSIM.SIMULATE.WDB                     string   false      \nXSIM.SIMULATE.XSIM.MORE_OPTIONS       string   false      \nXSIM.VIEW                             string*  false      \nXSIM.WDB                              string   false      "
+                  ],
+                  "sim_file_metadata": [
+                    {
+                      "file_type": "SystemVerilog",
+                      "library": "xil_defaultlib",
+                      "used_in_simulation": "1",
+                      "is_global_include": "0"
+                    }
+                  ],
+                  "simset": "sim_1",
+                  "sim_top": "tb_qualification_counter",
+                  "include_dirs": [],
+                  "verilog_defines": [],
+                  "target_simulator": "XSim",
+                  "simulator_property_schema_version": "vivado_2021_2_v1",
+                  "simulator_options": [],
+                  "files": [
+                    {
+                      "size": 11626,
+                      "mtime_ns": 1788031749775752200,
+                      "sha256": "b34428c203bf0a5ff1c40dbc9905f11e9e33503e31ac25037ee6498a0c9cfff6",
+                      "object_identity": [
+                        9267985230617076758,
+                        3659174700431868,
+                        33206
+                      ],
+                      "nlink": 1,
+                      "source_kind": "host_input"
+                    },
+                    {
+                      "size": 295,
+                      "mtime_ns": 1788031596450160200,
+                      "sha256": "2ae6a7893b4f6f2e1566a341128daac14c6c9439cdbf70a10b8b27c9295c2d90",
+                      "object_identity": [
+                        9267985230617076758,
+                        7318349397669543,
+                        33206
+                      ],
+                      "nlink": 1,
+                      "source_kind": "compile_source"
+                    },
+                    {
+                      "size": 950,
+                      "mtime_ns": 1788031596450160200,
+                      "sha256": "d32aac6cd28a39426c0d0bf525184944ae11c2457baedfc3ea17671e2bb2ab13",
+                      "object_identity": [
+                        9267985230617076758,
+                        1970324840167083,
+                        33206
+                      ],
+                      "nlink": 1,
+                      "source_kind": "compile_source"
+                    }
+                  ],
+                  "include_files": [],
+                  "host_input_files": [
+                    "<redacted-local-identity>"
+                  ]
+                },
+                "issues": []
+              },
+              "matches": false,
+              "comparison_scope": "prelaunch_project_attestation"
+            },
+            "simulation_stable_input_identity": {
+              "recorded_sha256": "4f9f4fdf72c7e4f5d5180dab709caa70ef8d3e9dc076568b178037cc80382751",
+              "current": {
+                "status": "READY",
+                "sha256": "4f9f4fdf72c7e4f5d5180dab709caa70ef8d3e9dc076568b178037cc80382751",
+                "identity": {
+                  "project_name": "s01_counter",
+                  "vivado_version_short": "2021.2",
+                  "vivado_version_full": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+                  "project_properties": [
+                    "<redacted-local-identity>"
+                  ],
+                  "simset_properties": [
+                    "Property                              Type     Read-only  Value\n32BIT                                 bool     false      0\nCLASS                                 string   true       fileset\nFILESET_TYPE                          string   true       SimulationSrcs\nFORCE_COMPILE_GLBL                    bool     false      0\nFORCE_NO_COMPILE_GLBL                 bool     false      0\nGENERATE_SCRIPTS_ONLY                 bool     false      0\nGENERIC                               string*  false      \nHBS.CONFIGURE_DESIGN_FOR_HIER_ACCESS  bool     false      1\nINCLUDE_DIRS                          string*  false      \nINCREMENTAL                           bool     false      0\nNAME                                  string   false      sim_1\nNEEDS_REFRESH                         bool     true       0\nNL.CELL                               string   false      \nNL.INCL_UNISIM_MODELS                 bool     false      0\nNL.PROCESS_CORNER                     string   false      slow\nNL.RENAME_TOP                         string   false      \nNL.SDF_ANNO                           bool     false      1\nNL.WRITE_ALL_OVERRIDES                bool     false      0\nRUNTIME                               string   false      1000ns\nSIMMODEL_VALUE_CHECK                  bool     false      1\nSOURCE_SET                            string   false      sources_1\nSYSTEMC_INCLUDE_DIRS                  string*  false      \nTOP                                   string   false      tb_qualification_counter\nTRANSPORT_INT_DELAY                   string   false      0\nTRANSPORT_PATH_DELAY                  string   false      0\nUNIFAST                               bool     false      0\nUNIT_UNDER_TEST                       string   false      0\nVERILOG_DEFINE                        string*  false      \nVERILOG_UPPERCASE                     bool     false      0\nXELAB.DEBUG_LEVEL                     enum     false      typical\nXELAB.DLL                             bool     false      0\nXELAB.LOAD_GLBL                       bool     false      1\nXELAB.MORE_OPTIONS                    string   false      \nXELAB.MT_LEVEL                        enum     false      auto\nXELAB.NOSORT                          bool     false      1\nXELAB.RANGECHECK                      bool     false      0\nXELAB.RELAX                           bool     false      1\nXELAB.SDF_DELAY                       enum     false      sdfmax\nXELAB.SNAPSHOT                        string   false      \nXSIM.COMPILE.TCL.PRE                  string   false      \nXSIM.COMPILE.XSC.MORE_OPTIONS         string   false      \nXSIM.COMPILE.XVHDL.MORE_OPTIONS       string   false      \nXSIM.COMPILE.XVHDL.NOSORT             bool     false      1\nXSIM.COMPILE.XVHDL.RELAX              bool     false      1\nXSIM.COMPILE.XVLOG.MORE_OPTIONS       string   false      \nXSIM.COMPILE.XVLOG.NOSORT             bool     false      1\nXSIM.COMPILE.XVLOG.RELAX              bool     false      1\nXSIM.ELABORATE.COVERAGE.CELLDEFINE    bool     false      0\nXSIM.ELABORATE.COVERAGE.DIR           string   false      \nXSIM.ELABORATE.COVERAGE.LIBRARY       bool     false      0\nXSIM.ELABORATE.COVERAGE.NAME          string   false      \nXSIM.ELABORATE.COVERAGE.TYPE          string   false      \nXSIM.ELABORATE.DEBUG_LEVEL            enum     false      typical\nXSIM.ELABORATE.LINK.C                 string   false      \nXSIM.ELABORATE.LINK.SYSC              string   false      \nXSIM.ELABORATE.LOAD_GLBL              bool     false      1\nXSIM.ELABORATE.MT_LEVEL               enum     false      auto\nXSIM.ELABORATE.RANGECHECK             bool     false      0\nXSIM.ELABORATE.RELAX                  bool     false      1\nXSIM.ELABORATE.SDF_DELAY              enum     false      sdfmax\nXSIM.ELABORATE.SNAPSHOT               string   false      \nXSIM.ELABORATE.XELAB.MORE_OPTIONS     string   false      \nXSIM.ELABORATE.XSC.MORE_OPTIONS       string   false      \nXSIM.MORE_OPTIONS                     string   false      \nXSIM.SAIF                             string   false      \nXSIM.SIMULATE.ADD_POSITIONAL          bool     false      0\nXSIM.SIMULATE.CUSTOM_TCL              string   false      \nXSIM.SIMULATE.LOG_ALL_SIGNALS         bool     false      0\nXSIM.SIMULATE.NO_QUIT                 bool     false      0\nXSIM.SIMULATE.RUNTIME                 string   false      1000ns\nXSIM.SIMULATE.SAIF                    string   false      \nXSIM.SIMULATE.SAIF_ALL_SIGNALS        bool     false      0\nXSIM.SIMULATE.SAIF_SCOPE              string   false      \nXSIM.SIMULATE.TCL.POST                string   false      \nXSIM.SIMULATE.WDB                     string   false      \nXSIM.SIMULATE.XSIM.MORE_OPTIONS       string   false      \nXSIM.VIEW                             string*  false      \nXSIM.WDB                              string   false      "
+                  ],
+                  "sim_file_metadata": [
+                    {
+                      "file_type": "SystemVerilog",
+                      "library": "xil_defaultlib",
+                      "used_in_simulation": "1",
+                      "is_global_include": "0"
+                    }
+                  ],
+                  "simset": "sim_1",
+                  "sim_top": "tb_qualification_counter",
+                  "include_dirs": [],
+                  "verilog_defines": [],
+                  "target_simulator": "XSim",
+                  "simulator_property_schema_version": "vivado_2021_2_v1",
+                  "simulator_options": [],
+                  "files": [
+                    {
+                      "size": 295,
+                      "mtime_ns": 1788031596450160200,
+                      "sha256": "2ae6a7893b4f6f2e1566a341128daac14c6c9439cdbf70a10b8b27c9295c2d90",
+                      "object_identity": [
+                        9267985230617076758,
+                        7318349397669543,
+                        33206
+                      ],
+                      "nlink": 1,
+                      "source_kind": "compile_source"
+                    },
+                    {
+                      "size": 950,
+                      "mtime_ns": 1788031596450160200,
+                      "sha256": "d32aac6cd28a39426c0d0bf525184944ae11c2457baedfc3ea17671e2bb2ab13",
+                      "object_identity": [
+                        9267985230617076758,
+                        1970324840167083,
+                        33206
+                      ],
+                      "nlink": 1,
+                      "source_kind": "compile_source"
+                    }
+                  ],
+                  "include_files": [],
+                  "host_input_files": []
+                },
+                "issues": [],
+                "project_file_excluded_from_freshness": true
+              },
+              "matches": true,
+              "comparison_scope": "postlaunch_freshness"
+            },
+            "source_tool": "get_simulation_result"
+          },
+          "readiness": {
+            "ok": true,
+            "status": "WARN",
+            "reasons": [],
+            "warnings": [
+              "check_timing reports no_input_delay=1",
+              "check_timing reports no_output_delay=4",
+              "Methodology contains 5 warning(s)"
+            ],
+            "source": "report_bundle"
+          },
+          "cdc": {
+            "ok": true,
+            "status": "READY",
+            "available": true,
+            "parsed": true,
+            "structure_recognized": true,
+            "complete": true,
+            "counts": {
+              "unsafe": 0,
+              "unknown": 0,
+              "safe": 0
+            },
+            "messages": {
+              "ok": true,
+              "counts": {
+                "ERROR": 0,
+                "CRITICAL WARNING": 0,
+                "WARNING": 0,
+                "INFO": 0
+              },
+              "messages": []
+            },
+            "source": "report_bundle",
+            "report_category": "cdc"
+          },
+          "clock_interaction": {
+            "ok": true,
+            "status": "READY",
+            "available": true,
+            "parsed": true,
+            "structure_recognized": true,
+            "complete": true,
+            "counts": {
+              "unsafe": 0,
+              "unknown": 0,
+              "safe": 1
+            },
+            "messages": {
+              "ok": true,
+              "counts": {
+                "ERROR": 0,
+                "CRITICAL WARNING": 0,
+                "WARNING": 0,
+                "INFO": 0
+              },
+              "messages": []
+            },
+            "source": "report_bundle",
+            "report_category": "clock_interaction"
+          },
+          "power": {
+            "ok": true,
+            "status": "READY",
+            "available": true,
+            "parsed": true,
+            "structure_recognized": true,
+            "complete": true,
+            "total_on_chip_w": 0.083,
+            "dynamic_w": 0.012,
+            "static_w": 0.072,
+            "messages": {
+              "ok": true,
+              "counts": {
+                "ERROR": 0,
+                "CRITICAL WARNING": 0,
+                "WARNING": 0,
+                "INFO": 0
+              },
+              "messages": []
+            },
+            "source": "report_bundle",
+            "report_category": "power"
+          },
+          "configuration_voltage": {
+            "ok": true,
+            "status": "READY",
+            "cfgbvs": "VCCO",
+            "config_voltage": "3.3",
+            "warnings": []
+          }
+        },
+        "report_bundle": {
+          "schema_version": 4,
+          "status": "WARN",
+          "run_name": "impl_1",
+          "vivado_version_short": "2021.2",
+          "vivado_build": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+          "report_command_schema": "vivado_2021_2_v1",
+          "collection_id": "report_7f75ff2b8fb9456080c4e8a08b070fe8",
+          "expected_report_count": 9,
+          "generated_report_count": 8,
+          "report_status": [
+            {
+              "category": "timing",
+              "filename": "timing_summary.rpt",
+              "present": true,
+              "current": true,
+              "command_status": "generated",
+              "mtime_ms": 1788031795311,
+              "collection_started_ms": 1788031786610,
+              "status": "current",
+              "reason": ""
+            },
+            {
+              "category": "utilization",
+              "filename": "utilization.rpt",
+              "present": true,
+              "current": true,
+              "command_status": "generated",
+              "mtime_ms": 1788031795316,
+              "collection_started_ms": 1788031786610,
+              "status": "current",
+              "reason": ""
+            },
+            {
+              "category": "drc",
+              "filename": "drc.rpt",
+              "present": true,
+              "current": true,
+              "command_status": "generated",
+              "mtime_ms": 1788031796178,
+              "collection_started_ms": 1788031786610,
+              "status": "current",
+              "reason": ""
+            },
+            {
+              "category": "methodology",
+              "filename": "methodology.rpt",
+              "present": true,
+              "current": true,
+              "command_status": "generated",
+              "mtime_ms": 1788031796522,
+              "collection_started_ms": 1788031786610,
+              "status": "current",
+              "reason": ""
+            },
+            {
+              "category": "qor",
+              "filename": "qor_summary.rpt",
+              "present": true,
+              "current": false,
+              "command_status": "unavailable",
+              "mtime_ms": 1788031785373,
+              "collection_started_ms": 1788031786610,
+              "status": "stale",
+              "reason": "qor_summary.rpt was not generated; report_qor_summary status=unavailable; message=report_qor_summary command is unavailable in this Vivado version.",
+              "optional": true,
+              "optional_due_to_vivado_version": true,
+              "severity": "info",
+              "user_message": "Vivado does not support report_qor_summary in this version; this is not a design failure."
+            },
+            {
+              "category": "cdc",
+              "filename": "cdc.rpt",
+              "present": true,
+              "current": true,
+              "command_status": "generated",
+              "mtime_ms": 1788031796529,
+              "collection_started_ms": 1788031786610,
+              "status": "current",
+              "reason": ""
+            },
+            {
+              "category": "clock_interaction",
+              "filename": "clock_interaction.rpt",
+              "present": true,
+              "current": true,
+              "command_status": "generated",
+              "mtime_ms": 1788031796535,
+              "collection_started_ms": 1788031786610,
+              "status": "current",
+              "reason": ""
+            },
+            {
+              "category": "power",
+              "filename": "power.rpt",
+              "present": true,
+              "current": true,
+              "command_status": "generated",
+              "mtime_ms": 1788031796597,
+              "collection_started_ms": 1788031786610,
+              "status": "current",
+              "reason": ""
+            },
+            {
+              "category": "messages",
+              "filename": "messages.log",
+              "present": true,
+              "current": true,
+              "command_status": "generated",
+              "mtime_ms": 1788031796609,
+              "collection_started_ms": 1788031786610,
+              "status": "current",
+              "reason": ""
+            }
+          ],
+          "missing_reports": [
+            {
+              "category": "qor",
+              "filename": "qor_summary.rpt",
+              "present": true,
+              "current": false,
+              "command_status": "unavailable",
+              "mtime_ms": 1788031785373,
+              "collection_started_ms": 1788031786610,
+              "status": "stale",
+              "reason": "qor_summary.rpt was not generated; report_qor_summary status=unavailable; message=report_qor_summary command is unavailable in this Vivado version.",
+              "optional": true,
+              "optional_due_to_vivado_version": true,
+              "severity": "info",
+              "user_message": "Vivado does not support report_qor_summary in this version; this is not a design failure."
+            }
+          ],
+          "required_missing_reports": [],
+          "command_outcomes": {
+            "timing": {
+              "status": "generated",
+              "message": "report_timing_summary completed"
+            },
+            "utilization": {
+              "status": "generated",
+              "message": "report_utilization completed"
+            },
+            "drc": {
+              "status": "generated",
+              "message": "report_drc completed"
+            },
+            "methodology": {
+              "status": "generated",
+              "message": "report_methodology completed"
+            },
+            "qor": {
+              "status": "unavailable",
+              "message": "report_qor_summary command is unavailable in this Vivado version"
+            },
+            "cdc": {
+              "status": "generated",
+              "message": "report_cdc completed"
+            },
+            "clock_interaction": {
+              "status": "generated",
+              "message": "report_clock_interaction completed"
+            },
+            "power": {
+              "status": "generated",
+              "message": "report_power completed"
+            },
+            "messages": {
+              "status": "generated",
+              "message": "scanned complete current runme.log for diagnostic messages"
+            }
+          },
+          "run_snapshot": {
+            "run_name": "impl_1",
+            "status": "write_bitstream Complete!",
+            "progress": "100%",
+            "needs_refresh": "0",
+            "session_generation_id": "3506dcaf356a4d91bdc4bad18b249dc7"
+          },
+          "evidence_freshness": {
+            "status": "FRESH",
+            "run_name": "impl_1",
+            "collection_id": "report_7f75ff2b8fb9456080c4e8a08b070fe8",
+            "collected_at": "2026-08-29T19:29:56Z",
+            "collection_started_ms": "1788031786610",
+            "needs_refresh": false,
+            "source": "collect_report_bundle",
+            "reasons": []
+          },
+          "source_log_evidence": {
+            "status": "FRESH",
+            "size": 37188,
+            "mtime": 1788031779,
+            "sha256": "8c251c8cc3f3393d05d01502a7f1d3c36bc51e2d69d174ebda0c0e858d6a207a",
+            "complete_scan": true,
+            "source_stable": true,
+            "messages_extracted_count": 0,
+            "reasons": []
+          },
+          "design_execution_identity": {
+            "status": "READY",
+            "sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+            "identity": {
+              "schema_version": 1,
+              "project_name": "s01_counter",
+              "part": "xc7a35tcpg236-1",
+              "top": "qualification_counter",
+              "vivado_version_short": "2021.2",
+              "vivado_version_full": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+              "include_dirs": [],
+              "verilog_defines": [],
+              "source_compile_order": [
+                {
+                  "used_in": "synthesis",
+                  "order": "0",
+                  "type": "SystemVerilog",
+                  "library": "xil_defaultlib"
+                }
+              ],
+              "constraint_compile_order": [
+                {
+                  "used_in": "implementation",
+                  "order": "0",
+                  "type": "XDC"
+                },
+                {
+                  "used_in": "synthesis",
+                  "order": "0",
+                  "type": "XDC"
+                }
+              ],
+              "run_configurations": [
+                {
+                  "run": "impl_1",
+                  "property": "AUTO_INCREMENTAL_CHECKPOINT",
+                  "value": "0"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "CONSTRSET",
+                  "value": "constrs_1"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "FLOW",
+                  "value": "Vivado Implementation 2021"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "INCREMENTAL_CHECKPOINT",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "PART",
+                  "value": "xc7a35tcpg236-1"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "SRCSET",
+                  "value": "sources_1"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+                  "value": "Default"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+                  "value": "1"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                  "value": "Default"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+                  "value": "1"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+                  "value": "Default"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                  "value": "Default"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+                  "value": "0"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+                  "value": "0"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+                  "value": "Default"
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "impl_1",
+                  "property": "STRATEGY",
+                  "value": "Vivado Implementation Defaults"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "AUTO_INCREMENTAL_CHECKPOINT",
+                  "value": "1"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "CONSTRSET",
+                  "value": "constrs_1"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "FLOW",
+                  "value": "Vivado Synthesis 2021"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "INCREMENTAL_CHECKPOINT",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "PART",
+                  "value": "xc7a35tcpg236-1"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "SRCSET",
+                  "value": "sources_1"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+                  "value": "auto"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+                  "value": "Default"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+                  "value": "rebuilt"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+                  "value": "auto"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+                  "value": "0"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+                  "value": "0"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+                  "value": "auto"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+                  "value": "0"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+                  "value": "3"
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+                  "value": ""
+                },
+                {
+                  "run": "synth_1",
+                  "property": "STRATEGY",
+                  "value": "Vivado Synthesis Defaults"
+                }
+              ],
+              "composite_inputs": [],
+              "files": [
+                {
+                  "size": 295,
+                  "mtime_ns": 1788031596450160200,
+                  "sha256": "2ae6a7893b4f6f2e1566a341128daac14c6c9439cdbf70a10b8b27c9295c2d90",
+                  "object_identity": [
+                    9267985230617076758,
+                    7318349397669543,
+                    33206
+                  ],
+                  "nlink": 1,
+                  "source_kind": "compile_source"
+                },
+                {
+                  "size": 607,
+                  "mtime_ns": 1788031596450160200,
+                  "sha256": "afee90c3fb9b11d2869588b0ba6313d9d867abf3682347718a1cd628e187939b",
+                  "object_identity": [
+                    9267985230617076758,
+                    5348024560695018,
+                    33206
+                  ],
+                  "nlink": 1,
+                  "source_kind": "constraint"
+                }
+              ],
+              "include_files": []
+            },
+            "issues": []
+          },
+          "design_execution_identity_sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+          "reports": [
+            {
+              "category": "cdc",
+              "size": 1153,
+              "sha256": "70c5d242abd19a0b5a2f79b3240261ef9e9240f59386da6584d11411192af92a"
+            },
+            {
+              "category": "clock_interaction",
+              "size": 1859,
+              "sha256": "59372c5ea8e7058fe265c490db9e3ca230860fdb974fb178f6b727b6954a8145"
+            },
+            {
+              "category": "drc",
+              "size": 1688,
+              "sha256": "bc9296d828b8b601249db5030b6e83c3d173b7c1ad8732af1d267e78d598d2b9"
+            },
+            {
+              "category": "messages",
+              "size": 0,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "category": "methodology",
+              "size": 2613,
+              "sha256": "325702153de85bbecffe64bf4f9145fc96ba6cde9479793a397887b84b70859b"
+            },
+            {
+              "category": "power",
+              "size": 8697,
+              "sha256": "67bbdf58bdefbef87706dbf02b979d6ef8ea1ae4bd3a43e57db5dce6b987f9bb"
+            },
+            {
+              "category": "timing",
+              "size": 17811,
+              "sha256": "5c4ae5743457bd0139e1797796a6d775b95a20763e424e035f706ac211eec853"
+            },
+            {
+              "category": "utilization",
+              "size": 10267,
+              "sha256": "97362f9c7062f23a528876536020d50ebb1c67bdbb0124ff49c74de49f648ef5"
+            }
+          ],
+          "manifest_sha256": "6f11811014771da18c2478f030368e5014b098eeeab7cc308179bc9abf17d8d5"
+        },
+        "findings": [
+          {
+            "id": "run_pre_hw_signoff-0",
+            "severity": "WARN",
+            "code": "READINESS_WARN",
+            "message": "check_timing reports no_input_delay=1",
+            "source_tool": "run_pre_hw_signoff",
+            "finding_fingerprint": "5470e03e06f5cd86737f191e591ff610d7405028a305baf186769087e247cde0",
+            "evidence_identity_sha256": "",
+            "waiver_eligible": false
+          },
+          {
+            "id": "run_pre_hw_signoff-1",
+            "severity": "WARN",
+            "code": "READINESS_WARN",
+            "message": "check_timing reports no_output_delay=4",
+            "source_tool": "run_pre_hw_signoff",
+            "finding_fingerprint": "d01ed786702dd091b2cac7252f4013689ba39a5156905cf53c040340cfd3be6e",
+            "evidence_identity_sha256": "",
+            "waiver_eligible": false
+          },
+          {
+            "id": "run_pre_hw_signoff-2",
+            "severity": "WARN",
+            "code": "METHODOLOGY",
+            "message": "Methodology contains 5 warning(s)",
+            "source_tool": "run_pre_hw_signoff",
+            "finding_fingerprint": "9e8017d36d0c8eeea4ef8999a6167360dd096c220da6a42579b44d0498c4b40a",
+            "evidence_identity_sha256": "",
+            "waiver_eligible": false
+          }
+        ],
+        "active_findings": [
+          {
+            "id": "run_pre_hw_signoff-0",
+            "severity": "WARN",
+            "code": "READINESS_WARN",
+            "message": "check_timing reports no_input_delay=1",
+            "source_tool": "run_pre_hw_signoff",
+            "finding_fingerprint": "5470e03e06f5cd86737f191e591ff610d7405028a305baf186769087e247cde0",
+            "evidence_identity_sha256": "",
+            "waiver_eligible": false
+          },
+          {
+            "id": "run_pre_hw_signoff-1",
+            "severity": "WARN",
+            "code": "READINESS_WARN",
+            "message": "check_timing reports no_output_delay=4",
+            "source_tool": "run_pre_hw_signoff",
+            "finding_fingerprint": "d01ed786702dd091b2cac7252f4013689ba39a5156905cf53c040340cfd3be6e",
+            "evidence_identity_sha256": "",
+            "waiver_eligible": false
+          },
+          {
+            "id": "run_pre_hw_signoff-2",
+            "severity": "WARN",
+            "code": "METHODOLOGY",
+            "message": "Methodology contains 5 warning(s)",
+            "source_tool": "run_pre_hw_signoff",
+            "finding_fingerprint": "9e8017d36d0c8eeea4ef8999a6167360dd096c220da6a42579b44d0498c4b40a",
+            "evidence_identity_sha256": "",
+            "waiver_eligible": false
+          }
+        ],
+        "waived_findings": [],
+        "waiver_count": 0,
+        "waiver_summary": {
+          "waived_finding_count": 0,
+          "active_finding_count": 3,
+          "requires_handoff_archive": false
+        }
+      }
+    }
+  },
+  "hardware_validation": {
+    "status": "NOT_VALIDATED",
+    "validated": false,
+    "scope": "real_fpga_jtag_programming_runtime"
+  }
+}

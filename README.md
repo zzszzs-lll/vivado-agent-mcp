@@ -41,7 +41,7 @@ GitHub Actions 的绿色状态证明 Python、MCP 契约和发行物安装链路
 
 - [Qualification record JSON Schema](qualification/qualification-record.schema.json)
 - [Vivado qualification matrix](qualification/matrix.json)
-- [`4bfd3db` public qualification record](qualification/records/4bfd3dbba05dc5fab9cdb048776a70de6d75f731/qualification-record.json) 与 [validator result](qualification/records/4bfd3dbba05dc5fab9cdb048776a70de6d75f731/qualification-validation.json)
+- [`4bfd3db` public qualification record](qualification/records/4bfd3dbba05dc5fab9cdb048776a70de6d75f731/qualification-record.json)、[脱敏 evidence snapshots](qualification/records/4bfd3dbba05dc5fab9cdb048776a70de6d75f731/public-evidence/) 与 [validator result](qualification/records/4bfd3dbba05dc5fab9cdb048776a70de6d75f731/qualification-validation.json)
 - 确定性 fixture：`minimal-counter-v1`，随 wheel 分发的 SystemVerilog RTL、自检查 testbench 和 XDC
 - 本地 runner：`tests/live_qualification_runner.py`
 - 手动 self-hosted workflow：`.github/workflows/live-qualification.yml`

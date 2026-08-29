@@ -1,0 +1,773 @@
+{
+  "schema_version": 1,
+  "evidence_type": "artifact_manifest",
+  "source_commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+  "raw_evidence": {
+    "size": 46698,
+    "sha256": "2454a7f2fe0f60ad9febe729c633496b608f49b5766f92e7c2251fd3f621e762"
+  },
+  "summary": {
+    "schema_version": 4,
+    "status": "READY",
+    "collection_id": "artifact_d5fac32c4b9e427fbb4613419388fd77",
+    "run_name": "impl_1",
+    "evidence_freshness": {
+      "status": "FRESH",
+      "run_name": "impl_1",
+      "collected_at": "2026-08-29T19:29:43Z",
+      "needs_refresh": false,
+      "source": "collect_build_artifacts",
+      "reasons": []
+    },
+    "run_snapshot": {
+      "run_name": "impl_1",
+      "status": "write_bitstream Complete!",
+      "progress": "100%",
+      "needs_refresh": "0",
+      "session_generation_id": "3506dcaf356a4d91bdc4bad18b249dc7",
+      "top": "qualification_counter",
+      "part": "xc7a35tcpg236-1",
+      "write_bitstream_step_enabled": "",
+      "write_bitstream_step_status": ""
+    },
+    "bitstream_origin": {
+      "status": "ATTESTED",
+      "policy": "vivado_canonical_path_plus_unique_output_plus_xilinx_header",
+      "top": "qualification_counter",
+      "part": "xc7a35tcpg236-1"
+    },
+    "run_execution_identity": {
+      "marker_source": "step_markers",
+      "markers": {
+        "init_design": {
+          "started": {
+            "size": 167,
+            "mtime_ns": 1788031715192884200,
+            "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+          },
+          "ended": {
+            "size": 0,
+            "mtime_ns": 1788031721222062600,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        "opt_design": {
+          "started": {
+            "size": 167,
+            "mtime_ns": 1788031721222062600,
+            "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+          },
+          "ended": {
+            "size": 0,
+            "mtime_ns": 1788031728391913100,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        "phys_opt_design": {
+          "started": {
+            "size": 167,
+            "mtime_ns": 1788031729616506000,
+            "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+          },
+          "ended": {
+            "size": 0,
+            "mtime_ns": 1788031729837144800,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        "place_design": {
+          "started": {
+            "size": 167,
+            "mtime_ns": 1788031728391913100,
+            "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+          },
+          "ended": {
+            "size": 0,
+            "mtime_ns": 1788031729616506000,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        "route_design": {
+          "started": {
+            "size": 167,
+            "mtime_ns": 1788031729838144200,
+            "sha256": "231e3fc5e9c77146e68e3bf9a11241053dd3252df3aa860e244375e1cae0983b"
+          },
+          "ended": {
+            "size": 0,
+            "mtime_ns": 1788031739756292800,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        "write_bitstream": {
+          "started": {
+            "size": 167,
+            "mtime_ns": 1788031763647937600,
+            "sha256": "e18d0ca24407aa3ea79dc936b5cb7b549973dc7d6208bb3777e936db0ff37641"
+          },
+          "ended": {
+            "size": 0,
+            "mtime_ns": 1788031779141712500,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "started_mtime_ns": 1788031715192884200,
+      "ended_mtime_ns": 1788031779141712500,
+      "write_bitstream_started_mtime_ns": 1788031763647937600,
+      "write_bitstream_ended_mtime_ns": 1788031779141712500
+    },
+    "design_execution_identity": {
+      "status": "READY",
+      "sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+      "identity": {
+        "schema_version": 1,
+        "project_name": "s01_counter",
+        "part": "xc7a35tcpg236-1",
+        "top": "qualification_counter",
+        "vivado_version_short": "2021.2",
+        "vivado_version_full": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+        "include_dirs": [],
+        "verilog_defines": [],
+        "source_compile_order": [
+          {
+            "used_in": "synthesis",
+            "order": "0",
+            "type": "SystemVerilog",
+            "library": "xil_defaultlib"
+          }
+        ],
+        "constraint_compile_order": [
+          {
+            "used_in": "implementation",
+            "order": "0",
+            "type": "XDC"
+          },
+          {
+            "used_in": "synthesis",
+            "order": "0",
+            "type": "XDC"
+          }
+        ],
+        "run_configurations": [
+          {
+            "run": "impl_1",
+            "property": "AUTO_INCREMENTAL_CHECKPOINT",
+            "value": "0"
+          },
+          {
+            "run": "impl_1",
+            "property": "CONSTRSET",
+            "value": "constrs_1"
+          },
+          {
+            "run": "impl_1",
+            "property": "FLOW",
+            "value": "Vivado Implementation 2021"
+          },
+          {
+            "run": "impl_1",
+            "property": "INCREMENTAL_CHECKPOINT",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "PART",
+            "value": "xc7a35tcpg236-1"
+          },
+          {
+            "run": "impl_1",
+            "property": "SRCSET",
+            "value": "sources_1"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+            "value": "1"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+            "value": "1"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+            "value": "0"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+            "value": "0"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STRATEGY",
+            "value": "Vivado Implementation Defaults"
+          },
+          {
+            "run": "synth_1",
+            "property": "AUTO_INCREMENTAL_CHECKPOINT",
+            "value": "1"
+          },
+          {
+            "run": "synth_1",
+            "property": "CONSTRSET",
+            "value": "constrs_1"
+          },
+          {
+            "run": "synth_1",
+            "property": "FLOW",
+            "value": "Vivado Synthesis 2021"
+          },
+          {
+            "run": "synth_1",
+            "property": "INCREMENTAL_CHECKPOINT",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "PART",
+            "value": "xc7a35tcpg236-1"
+          },
+          {
+            "run": "synth_1",
+            "property": "SRCSET",
+            "value": "sources_1"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+            "value": "auto"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+            "value": "rebuilt"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+            "value": "auto"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+            "value": "0"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+            "value": "0"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+            "value": "auto"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+            "value": "0"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+            "value": "3"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STRATEGY",
+            "value": "Vivado Synthesis Defaults"
+          }
+        ],
+        "composite_inputs": [],
+        "files": [
+          {
+            "size": 295,
+            "mtime_ns": 1788031596450160200,
+            "sha256": "2ae6a7893b4f6f2e1566a341128daac14c6c9439cdbf70a10b8b27c9295c2d90",
+            "object_identity": [
+              9267985230617076758,
+              7318349397669543,
+              33206
+            ],
+            "nlink": 1,
+            "source_kind": "compile_source"
+          },
+          {
+            "size": 607,
+            "mtime_ns": 1788031596450160200,
+            "sha256": "afee90c3fb9b11d2869588b0ba6313d9d867abf3682347718a1cd628e187939b",
+            "object_identity": [
+              9267985230617076758,
+              5348024560695018,
+              33206
+            ],
+            "nlink": 1,
+            "source_kind": "constraint"
+          }
+        ],
+        "include_files": []
+      },
+      "issues": []
+    },
+    "design_execution_identity_sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+    "artifacts": [
+      {
+        "size": 2325,
+        "sha256": "3e65909f4b1febbb3c07b4801f73c5387ee7a00be7695b5a67d4c8fcee79a76c",
+        "source_sha256": "3e65909f4b1febbb3c07b4801f73c5387ee7a00be7695b5a67d4c8fcee79a76c",
+        "source_mtime_ns": 1788031721222062600,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 11614,
+        "sha256": "1c3b20c0478566d92b631c89476102bba9b8f44f4ac062a7b605e8f320876ac1",
+        "source_sha256": "1c3b20c0478566d92b631c89476102bba9b8f44f4ac062a7b605e8f320876ac1",
+        "source_mtime_ns": 1788031728390920600,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 2058,
+        "sha256": "5bd5dce9e35b704793c4cd05a1ca24d339ae0626f5cd946d28748fbae9be453e",
+        "source_sha256": "5bd5dce9e35b704793c4cd05a1ca24d339ae0626f5cd946d28748fbae9be453e",
+        "source_mtime_ns": 1788031729837144800,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 22181,
+        "sha256": "30e1d6e3f3656626544d7e8f63258c969bce8bb727defd1f9133459492c2b552",
+        "source_sha256": "30e1d6e3f3656626544d7e8f63258c969bce8bb727defd1f9133459492c2b552",
+        "source_mtime_ns": 1788031729616506000,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 2192129,
+        "sha256": "9ee72066ec9e07b64bf5370fbf66c5dc8a269d1c18b1759fa8a341189a661b9e",
+        "source_sha256": "9ee72066ec9e07b64bf5370fbf66c5dc8a269d1c18b1759fa8a341189a661b9e",
+        "source_mtime_ns": 1788031778996230800,
+        "category": "bitstream",
+        "bitstream_header": {
+          "format": "xilinx_bit_v1",
+          "design": "qualification_counter;UserID=0XFFFFFFFF;Version=2021.2",
+          "part": "7a35tcpg236",
+          "date": "2026/08/30",
+          "time": "03:29:38",
+          "payload_offset": 117,
+          "payload_size": 2192012,
+          "file_size": 2192129
+        }
+      },
+      {
+        "size": 30,
+        "sha256": "8022a3801e0d9eed3a5559af22ee8b8d82a70a55cd06a3c10d5bc00f95f7b238",
+        "source_sha256": "8022a3801e0d9eed3a5559af22ee8b8d82a70a55cd06a3c10d5bc00f95f7b238",
+        "source_mtime_ns": 1788031739755291500,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 1005,
+        "sha256": "88f71672336e32222d8b1de23166968c30de0d121979b010760531e773723fae",
+        "source_sha256": "88f71672336e32222d8b1de23166968c30de0d121979b010760531e773723fae",
+        "source_mtime_ns": 1788031739755291500,
+        "category": "report"
+      },
+      {
+        "size": 1180,
+        "sha256": "d4f4a5f3466416a6dd4dda3c589539b4a1e07b76c222b9c1cde0d0106bd06842",
+        "source_sha256": "d4f4a5f3466416a6dd4dda3c589539b4a1e07b76c222b9c1cde0d0106bd06842",
+        "source_mtime_ns": 1788031739755291500,
+        "category": "report"
+      },
+      {
+        "size": 10893,
+        "sha256": "fa4af48eaf750217bb1a8d91481addafbd827bde7115454feed33665d66a616c",
+        "source_sha256": "fa4af48eaf750217bb1a8d91481addafbd827bde7115454feed33665d66a616c",
+        "source_mtime_ns": 1788031739753291700,
+        "category": "report"
+      },
+      {
+        "size": 3725,
+        "sha256": "1d146a5506c194212df511d9fd96874d4180a0b554253f65e94d99ff16b6bc2d",
+        "source_sha256": "1d146a5506c194212df511d9fd96874d4180a0b554253f65e94d99ff16b6bc2d",
+        "source_mtime_ns": 1788031729615505100,
+        "category": "report"
+      },
+      {
+        "size": 37,
+        "sha256": "31eb1df8ed34f4d1c42efcf98ce14ef7aff2bdb2095056a808576c92d3269145",
+        "source_sha256": "31eb1df8ed34f4d1c42efcf98ce14ef7aff2bdb2095056a808576c92d3269145",
+        "source_mtime_ns": 1788031728390920600,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 1383,
+        "sha256": "6c14532ebba9badbcb10181a8b4610c10742bc393fbbc4db74ab92203d7941ff",
+        "source_sha256": "6c14532ebba9badbcb10181a8b4610c10742bc393fbbc4db74ab92203d7941ff",
+        "source_mtime_ns": 1788031728390920600,
+        "category": "report"
+      },
+      {
+        "size": 112,
+        "sha256": "7ba7813604abba558d36d10947876bbc5c455d0c99eb521014653deac8dc3e2a",
+        "source_sha256": "7ba7813604abba558d36d10947876bbc5c455d0c99eb521014653deac8dc3e2a",
+        "source_mtime_ns": 1788031728390920600,
+        "category": "report"
+      },
+      {
+        "size": 37,
+        "sha256": "31eb1df8ed34f4d1c42efcf98ce14ef7aff2bdb2095056a808576c92d3269145",
+        "source_sha256": "31eb1df8ed34f4d1c42efcf98ce14ef7aff2bdb2095056a808576c92d3269145",
+        "source_mtime_ns": 1788031739265269500,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 1393,
+        "sha256": "78cdea5b0d46e0ac64df8d4404405b5ed602f928561e7f63bbd39f44774dd131",
+        "source_sha256": "78cdea5b0d46e0ac64df8d4404405b5ed602f928561e7f63bbd39f44774dd131",
+        "source_mtime_ns": 1788031739265269500,
+        "category": "report"
+      },
+      {
+        "size": 113,
+        "sha256": "61b8ea878923214ecabffe0607eddb372664f20b95e96c5ffd2020deb6f99ef6",
+        "source_sha256": "61b8ea878923214ecabffe0607eddb372664f20b95e96c5ffd2020deb6f99ef6",
+        "source_mtime_ns": 1788031739265269500,
+        "category": "report"
+      },
+      {
+        "size": 73853,
+        "sha256": "92baa36000857af73d6118848f9f8df18166961adacad88dc94a3015792a72e5",
+        "source_sha256": "92baa36000857af73d6118848f9f8df18166961adacad88dc94a3015792a72e5",
+        "source_mtime_ns": 1788031729606995400,
+        "category": "report"
+      },
+      {
+        "size": 52,
+        "sha256": "0d8cb8c08d304940851be5e3b5be99ff92f98ba7ac400b590a340ed1ca31fd02",
+        "source_sha256": "0d8cb8c08d304940851be5e3b5be99ff92f98ba7ac400b590a340ed1ca31fd02",
+        "source_mtime_ns": 1788031739622913800,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 2402,
+        "sha256": "097365cda27642c1074f5f8bca35fb80f80f783c2d9ca0f908fe8524cf673464",
+        "source_sha256": "097365cda27642c1074f5f8bca35fb80f80f783c2d9ca0f908fe8524cf673464",
+        "source_mtime_ns": 1788031739622913800,
+        "category": "report"
+      },
+      {
+        "size": 1348,
+        "sha256": "b8b05641f32ec1a7167e4d7cc958c9feabe187420862ad3fdcd833a2c0d6abe8",
+        "source_sha256": "b8b05641f32ec1a7167e4d7cc958c9feabe187420862ad3fdcd833a2c0d6abe8",
+        "source_mtime_ns": 1788031739622913800,
+        "category": "report"
+      },
+      {
+        "size": 125115,
+        "sha256": "c885e781612ece3fb5294cde79c9c97f70ad85c11de47ba4ddc33da4b06fe829",
+        "source_sha256": "c885e781612ece3fb5294cde79c9c97f70ad85c11de47ba4ddc33da4b06fe829",
+        "source_mtime_ns": 1788031727459850600,
+        "category": "checkpoint"
+      },
+      {
+        "size": 135010,
+        "sha256": "51818884816ef9668913ec24510faa9a1765e253d39d0fa349f3509084207fd8",
+        "source_sha256": "51818884816ef9668913ec24510faa9a1765e253d39d0fa349f3509084207fd8",
+        "source_mtime_ns": 1788031729835143700,
+        "category": "checkpoint"
+      },
+      {
+        "size": 132246,
+        "sha256": "5d12f21052b9a744bd88f0dfd4cae276ab6609409854fa96bcd9d4d83e0e8c4f",
+        "source_sha256": "5d12f21052b9a744bd88f0dfd4cae276ab6609409854fa96bcd9d4d83e0e8c4f",
+        "source_mtime_ns": 1788031729578071600,
+        "category": "checkpoint"
+      },
+      {
+        "size": 8436,
+        "sha256": "e04fd714cab316ac10c5f92717b352075ea79982053979e105125fe61493715d",
+        "source_sha256": "e04fd714cab316ac10c5f92717b352075ea79982053979e105125fe61493715d",
+        "source_mtime_ns": 1788031739718497700,
+        "category": "report"
+      },
+      {
+        "size": 7208,
+        "sha256": "698e0e5e847a25bfe1f913414ba28a12f61fee205a5c14faeafb7997082f6285",
+        "source_sha256": "698e0e5e847a25bfe1f913414ba28a12f61fee205a5c14faeafb7997082f6285",
+        "source_mtime_ns": 1788031739710145600,
+        "category": "report"
+      },
+      {
+        "size": 728,
+        "sha256": "cf9f1bc1dc02be8794ce2a534e458cd60dfe8103cf98d1974d58d0cc8749a124",
+        "source_sha256": "cf9f1bc1dc02be8794ce2a534e458cd60dfe8103cf98d1974d58d0cc8749a124",
+        "source_mtime_ns": 1788031739718497700,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 43,
+        "sha256": "8f357e8d3a9d9fa83a11681dd92b5a7d1b63024d6850a22cc6dfe96866d2dd38",
+        "source_sha256": "8f357e8d3a9d9fa83a11681dd92b5a7d1b63024d6850a22cc6dfe96866d2dd38",
+        "source_mtime_ns": 1788031739721293200,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 588,
+        "sha256": "da3ce2b5e1aec8c354c3bda486f4a4cc7898ab96e4eb09dff443ab80e3fabce3",
+        "source_sha256": "da3ce2b5e1aec8c354c3bda486f4a4cc7898ab96e4eb09dff443ab80e3fabce3",
+        "source_mtime_ns": 1788031739721293200,
+        "category": "report"
+      },
+      {
+        "size": 136315,
+        "sha256": "d620c26c0eaa44beb9b7fe658732d80f7d080b42de67c1cc20d5c3ecebcf10c3",
+        "source_sha256": "d620c26c0eaa44beb9b7fe658732d80f7d080b42de67c1cc20d5c3ecebcf10c3",
+        "source_mtime_ns": 1788031738635399000,
+        "category": "checkpoint"
+      },
+      {
+        "size": 106,
+        "sha256": "2b5a991f25c6e6d1c409aefab0dda7cce96f5f5c4447115465b635f9c9aac0cf",
+        "source_sha256": "2b5a991f25c6e6d1c409aefab0dda7cce96f5f5c4447115465b635f9c9aac0cf",
+        "source_mtime_ns": 1788031739724293900,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 80894,
+        "sha256": "382776b365c7fa1a8d84a5b999cb890e24a13a0d9aef5037c08713a30bf9d731",
+        "source_sha256": "382776b365c7fa1a8d84a5b999cb890e24a13a0d9aef5037c08713a30bf9d731",
+        "source_mtime_ns": 1788031739727293400,
+        "category": "report"
+      },
+      {
+        "size": 63689,
+        "sha256": "24e48478f8a5f9d2b427d2c1559ba7960ac87b3758229c5cca40d44b34cfb4e2",
+        "source_sha256": "24e48478f8a5f9d2b427d2c1559ba7960ac87b3758229c5cca40d44b34cfb4e2",
+        "source_mtime_ns": 1788031739727293400,
+        "category": "report"
+      },
+      {
+        "size": 276,
+        "sha256": "7b99b9f036514e438f7654b49d21e43c4e09223cb36fdbaf8f10a346c76bc70c",
+        "source_sha256": "7b99b9f036514e438f7654b49d21e43c4e09223cb36fdbaf8f10a346c76bc70c",
+        "source_mtime_ns": 1788031729612504100,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 9874,
+        "sha256": "89ffb613482e4c9b6e3b205146833af84ed0db68ccf21ae9ee6b8516cdbba122",
+        "source_sha256": "89ffb613482e4c9b6e3b205146833af84ed0db68ccf21ae9ee6b8516cdbba122",
+        "source_mtime_ns": 1788031729612504100,
+        "category": "report"
+      },
+      {
+        "size": 16010,
+        "sha256": "8fbd0e5b12f15faf82d6294c58987ea9ab85104791f1727a2fb3106c531e8dbe",
+        "source_sha256": "8fbd0e5b12f15faf82d6294c58987ea9ab85104791f1727a2fb3106c531e8dbe",
+        "source_mtime_ns": 1788031739755291500,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 149,
+        "sha256": "b3934c8d0fd15a37456d33e0fa8a988f8fb8d3b429ee7490ac85f82199ee6a3c",
+        "source_sha256": "b3934c8d0fd15a37456d33e0fa8a988f8fb8d3b429ee7490ac85f82199ee6a3c",
+        "source_mtime_ns": 1788031779146722800,
+        "category": "vivado_metadata"
+      },
+      {
+        "size": 5768,
+        "sha256": "ff2ce7715d86dd24f79270df3a46b9f5794d2f7d19ab6061fe3165129e03b9a3",
+        "source_sha256": "ff2ce7715d86dd24f79270df3a46b9f5794d2f7d19ab6061fe3165129e03b9a3",
+        "source_mtime_ns": 1788031779140718900,
+        "category": "vivado_metadata"
+      }
+    ]
+  },
+  "hardware_validation": {
+    "status": "NOT_VALIDATED",
+    "validated": false,
+    "scope": "real_fpga_jtag_programming_runtime"
+  }
+}
