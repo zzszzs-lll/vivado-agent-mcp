@@ -26,7 +26,9 @@ from vivado_agent_mcp.qualification import (  # noqa: E402
     build_qualification_record,
     qualification_fixture_manifest,
     update_qualification_matrix,
+    validate_published_qualification_bundle,
     validate_qualification_record,
+    write_public_qualification_evidence,
 )
 from vivado_agent_mcp.release_identity import sha256_file, source_identity  # noqa: E402
 
@@ -163,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         generated_at=_now(),
         started_at=started_at,
         runner_class=str(args.runner_class),
+        public_evidence_dir=run_dir / "public-evidence",
     )
     expected = _expected_identity(source_provenance, wheel_path, workspace=workspace)
     validation = validate_qualification_record(record, expected=expected)
@@ -178,15 +181,27 @@ def main(argv: list[str] | None = None) -> int:
     validation_path = run_dir / "qualification-validation.json"
     matrix_output_path = run_dir / "qualification-matrix.json"
     record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    publication_validation = (
+        validate_published_qualification_bundle(record_path)
+        if record["qualification_status"] == "qualified"
+        else {
+            "ok": True,
+            "status": "NOT_APPLICABLE",
+            "reason_code": "PUBLIC_QUALIFICATION_BUNDLE_NOT_REQUIRED",
+            "issues": [],
+        }
+    )
+    validation["published_evidence"] = publication_validation
     validation_path.write_text(json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8")
     matrix_output_path.write_text(json.dumps(matrix_update["matrix"], ensure_ascii=False, indent=2), encoding="utf-8")
     report = {
-        "ok": validation["ok"] and matrix_update["ok"],
+        "ok": validation["ok"] and matrix_update["ok"] and publication_validation["ok"],
         "status": record["qualification_status"],
-        "qualified": record["qualification_status"] == "qualified" and validation["ok"],
+        "qualified": record["qualification_status"] == "qualified" and validation["ok"] and publication_validation["ok"],
         "record_id": record["record_id"],
         "record_path": str(record_path),
         "validation_path": str(validation_path),
+        "public_evidence_dir": str(run_dir / "public-evidence") if record["qualification_status"] == "qualified" else "",
         "matrix_path": str(matrix_output_path),
         "scenario_result_path": str(scenario_result_path),
         "source_provenance_path": str(source_provenance_path),
@@ -198,13 +213,83 @@ def main(argv: list[str] | None = None) -> int:
         "command_result": command_result,
         "hardware_validation": record["hardware_validation"],
     }
+    public_summary = build_public_qualification_summary(
+        report=report,
+        record=record,
+        validation=validation,
+        matrix_update=matrix_update,
+        publication_validation=publication_validation,
+    )
+    public_summary_path = run_dir / "qualification-public-summary.json"
+    public_summary_path.write_text(
+        json.dumps(public_summary, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     summary_path = run_dir / "qualification-summary.json"
     report["summary_path"] = str(summary_path)
+    report["public_summary_path"] = str(public_summary_path)
     summary_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2 if args.json else None))
     if not report["ok"] or (args.require_qualified and not report["qualified"]):
         return 2
     return 0
+
+
+def build_public_qualification_summary(
+    *,
+    report: dict[str, Any],
+    record: dict[str, Any],
+    validation: dict[str, Any],
+    matrix_update: dict[str, Any],
+    publication_validation: dict[str, Any],
+) -> dict[str, Any]:
+    source = _mapping(record.get("source"))
+    package = _mapping(record.get("package"))
+    wheel = _mapping(package.get("wheel"))
+    sdist = _mapping(package.get("sdist"))
+    terminal = _mapping(record.get("terminal"))
+    hardware = _mapping(record.get("hardware_validation"))
+    return {
+        "schema_version": 1,
+        "ok": report.get("ok") is True,
+        "status": str(record.get("qualification_status", "")),
+        "qualified": report.get("qualified") is True,
+        "record_id": str(record.get("record_id", "")),
+        "source": {
+            "commit": str(source.get("commit", "")),
+            "tree": str(source.get("tree", "")),
+        },
+        "package": {
+            "name": str(package.get("name", "")),
+            "version": str(package.get("version", "")),
+            "wheel_sha256": str(wheel.get("sha256", "")),
+            "sdist_sha256": str(sdist.get("sha256", "")),
+            "provenance_verified": package.get("provenance_verified") is True,
+        },
+        "terminal": {
+            "status": str(terminal.get("status", "")),
+            "reason_code": str(terminal.get("reason_code", "")),
+        },
+        "record_validation": {
+            "ok": validation.get("ok") is True,
+            "status": str(validation.get("status", "")),
+        },
+        "matrix_update": {
+            "ok": matrix_update.get("ok") is True,
+            "status": str(matrix_update.get("status", "")),
+            "reason_code": str(matrix_update.get("reason_code", "")),
+        },
+        "published_evidence": {
+            "ok": publication_validation.get("ok") is True,
+            "status": str(publication_validation.get("status", "")),
+            "reason_code": str(publication_validation.get("reason_code", "")),
+        },
+        "hardware_validation": {
+            "status": str(hardware.get("status", "")),
+            "validated": hardware.get("validated") is True,
+            "scope": str(hardware.get("scope", "")),
+        },
+    }
 
 
 def build_qualification_record_from_run(
@@ -217,6 +302,7 @@ def build_qualification_record_from_run(
     generated_at: str,
     started_at: str,
     runner_class: str,
+    public_evidence_dir: Path | None = None,
 ) -> dict[str, Any]:
     source_identity = _mapping(source_provenance.get("source_identity"))
     source_snapshot = _mapping(source_provenance.get("source_snapshot"))
@@ -228,7 +314,12 @@ def build_qualification_record_from_run(
     scenario_document_matches = _scenario_document_matches(scenario_result, scenario_result_path)
     vivado = _vivado_identity(scenario)
     fixture = _fixture_identity(scenario)
-    evidence, evidence_complete = collect_qualification_evidence(scenario_result_path, scenario)
+    evidence, evidence_complete, evidence_publication_failure = collect_qualification_evidence(
+        scenario_result_path,
+        scenario,
+        public_evidence_dir=public_evidence_dir or scenario_result_path.parent / "public-evidence",
+        source_commit=str(source_identity.get("commit", "")),
+    )
     release_provenance_ok = _release_provenance_matches(source_provenance, release_manifest)
     scenario_provenance_ok = _scenario_provenance_matches(
         scenario_result,
@@ -288,8 +379,20 @@ def build_qualification_record_from_run(
     elif not evidence_complete:
         qualification_status = "rejected"
         terminal_status = "BLOCK"
-        reason_code = "QUALIFICATION_LIVE_EVIDENCE_INCOMPLETE"
-        message = "Live flow did not produce every required fresh artifact/report/audit/diagnostic evidence digest."
+        if evidence_publication_failure:
+            reason_code = str(
+                evidence_publication_failure.get("reason_code", "PUBLIC_EVIDENCE_PUBLICATION_FAILED")
+            )
+            evidence_type = str(evidence_publication_failure.get("evidence_type", ""))
+            detail = str(evidence_publication_failure.get("detail", ""))
+            message = "Public evidence publication failed."
+            if evidence_type:
+                message += f" evidence_type={evidence_type}."
+            if detail:
+                message += f" detail={detail}"
+        else:
+            reason_code = "QUALIFICATION_LIVE_EVIDENCE_INCOMPLETE"
+            message = "Live flow did not produce every required fresh artifact/report/audit/diagnostic evidence digest."
     elif live_pass:
         qualification_status = "qualified"
         terminal_status = "PASS"
@@ -352,24 +455,46 @@ def build_qualification_record_from_run(
 def collect_qualification_evidence(
     scenario_result_path: Path,
     scenario: dict[str, Any],
-) -> tuple[dict[str, Any], bool]:
+    *,
+    public_evidence_dir: Path,
+    source_commit: str,
+) -> tuple[dict[str, Any], bool, dict[str, Any]]:
     allowed_root = scenario_result_path.resolve().parent
     partial = _mapping(scenario.get("partial_handoff"))
-    artifact = _bounded_evidence_entry(partial.get("artifact_manifest_path"), allowed_root)
-    report = _bounded_evidence_entry(partial.get("report_manifest_path"), allowed_root)
+    artifact_path = _bounded_file(partial.get("artifact_manifest_path"), allowed_root)
+    report_path = _bounded_file(partial.get("report_manifest_path"), allowed_root)
     diagnostic_path = _bounded_file(partial.get("diagnostic_manifest_path"), allowed_root)
-    diagnostic = _evidence_entry(diagnostic_path)
     audit_path = _verified_audit_path(diagnostic_path, allowed_root)
-    audit = _evidence_entry(audit_path)
-    scenario_entry = _evidence_entry(_bounded_file(scenario_result_path, allowed_root))
-    entries = {
-        "scenario_result": scenario_entry,
-        "artifact_manifest": artifact,
-        "report_manifest": report,
-        "audit_result": audit,
-        "diagnostic_manifest": diagnostic,
+    raw_paths = {
+        "scenario_result": _bounded_file(scenario_result_path, allowed_root),
+        "artifact_manifest": artifact_path,
+        "report_manifest": report_path,
+        "audit_result": audit_path,
+        "diagnostic_manifest": diagnostic_path,
     }
+    entries = {name: _evidence_entry(path) for name, path in raw_paths.items()}
     complete = all(_entry_complete(entry) for entry in entries.values())
+    if complete:
+        published = write_public_qualification_evidence(
+            {name: path for name, path in raw_paths.items() if path is not None},
+            public_evidence_dir,
+            source_commit=source_commit,
+            hardware_validation={
+                "status": "NOT_VALIDATED",
+                "validated": False,
+                "scope": "real_fpga_jtag_programming_runtime",
+            },
+        )
+        if published["ok"]:
+            return published["evidence"], True, {}
+        publication_failure = {
+            key: published[key]
+            for key in ("status", "reason_code", "evidence_type", "detail")
+            if key in published
+        }
+        complete = False
+    else:
+        publication_failure = {}
     normalized_payload = {
         "scenario": {
             "id": scenario.get("id"),
@@ -388,7 +513,7 @@ def collect_qualification_evidence(
         "freshness": "FRESH" if complete else "MISSING",
         "normalized_evidence_sha256": hashlib.sha256(_canonical_json(normalized_payload)).hexdigest() if complete else "",
         **entries,
-    }, complete
+    }, complete, publication_failure
 
 
 def qualification_scenario_command(

@@ -48,5 +48,5 @@ vivado_agent_mcp = ["qualification_fixture/*.sv", "qualification_fixture/*.xdc"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-q --basetemp=test_use"
+addopts = "-q --basetemp=test_use/pytest_tmp"
 cache_dir = ".vivado_agent_mcp/pytest_cache"

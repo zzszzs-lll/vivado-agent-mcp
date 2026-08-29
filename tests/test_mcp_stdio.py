@@ -551,6 +551,7 @@ async def _run_stdio_client_check(tmp_path: Path) -> None:
             assert runtime_identity["runtime_id"]
             assert len(plan_sha256) == 64
 
+            runtime_dir.mkdir(parents=True, exist_ok=True)
             (runtime_dir / "stdio_plan_drift.tmp").write_text("created after dry-run\n", encoding="utf-8")
             drifted_cleanup = await session.call_tool(
                 "clean_runtime_cache",

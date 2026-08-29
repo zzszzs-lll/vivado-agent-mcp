@@ -1,0 +1,50 @@
+{
+  "ok": true,
+  "status": "READY",
+  "qualification_status": "qualified",
+  "record_id": "43479fbaf31ca39d3dcfbd699f36643e6c176fcd1baadea345f55c8099cec330",
+  "calculated_record_id": "43479fbaf31ca39d3dcfbd699f36643e6c176fcd1baadea345f55c8099cec330",
+  "reason_codes": [],
+  "issues": [],
+  "hardware_validation": {
+    "status": "NOT_VALIDATED",
+    "validated": false,
+    "scope": "real_fpga_jtag_programming_runtime"
+  },
+  "published_evidence": {
+    "ok": true,
+    "status": "READY",
+    "reason_code": "PUBLIC_QUALIFICATION_BUNDLE_READY",
+    "record_id": "43479fbaf31ca39d3dcfbd699f36643e6c176fcd1baadea345f55c8099cec330",
+    "source_commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+    "evidence_dir": "public-evidence",
+    "evidence": {
+      "scenario_result": {
+        "size": 67632,
+        "sha256": "e79aeea7fae3d4ddcc9986c49fe240cfb3d669515ecd19542c5490d54054fbce"
+      },
+      "artifact_manifest": {
+        "size": 26476,
+        "sha256": "b99df1c810cefa2e5413eb485f3fbe37d748da49a896ce0237a0055f0e8e76cc"
+      },
+      "report_manifest": {
+        "size": 18824,
+        "sha256": "a6e6d639e6bb98de181ccd32474c6e5937663e62bae4f179abacf75d5538fb99"
+      },
+      "audit_result": {
+        "size": 119419,
+        "sha256": "7f863a5c3143d9561b225e61c0a6dd7e221756026e15113fa86b81329def72ec"
+      },
+      "diagnostic_manifest": {
+        "size": 10654,
+        "sha256": "6db9495dae47e91836b025506817adc30de310668e2967b4320f593729281c9b"
+      }
+    },
+    "issues": [],
+    "hardware_validation": {
+      "status": "NOT_VALIDATED",
+      "validated": false,
+      "scope": "real_fpga_jtag_programming_runtime"
+    }
+  }
+}

@@ -191,6 +191,73 @@ def test_missing_live_evidence_rejects_claim_instead_of_emitting_qualified(tmp_p
     assert validate_qualification_record(record)["ok"] is True
 
 
+def test_public_evidence_publication_failure_preserves_reason_code(tmp_path: Path) -> None:
+    scenario_result, result_path = _write_live_scenario_result(tmp_path)
+    kwargs = {
+        "source_provenance": _source_provenance(),
+        "release_manifest": _release_manifest(),
+        "scenario_result": scenario_result,
+        "scenario_result_path": result_path,
+        "live_requested": True,
+        "generated_at": "2026-08-30T03:05:00+00:00",
+        "started_at": "2026-08-30T03:00:00+00:00",
+        "runner_class": "test-self-hosted",
+    }
+    first = runner.build_qualification_record_from_run(**kwargs)
+    second = runner.build_qualification_record_from_run(**kwargs)
+
+    assert first["qualification_status"] == "qualified"
+    assert second["qualification_status"] == "rejected"
+    assert second["terminal"]["reason_code"] == "PUBLIC_EVIDENCE_DESTINATION_NOT_EMPTY"
+    assert "Public evidence publication failed" in second["terminal"]["message"]
+
+
+def test_public_qualification_summary_omits_paths_commands_and_output() -> None:
+    summary = runner.build_public_qualification_summary(
+        report={
+            "ok": True,
+            "qualified": True,
+            "wheel_path": r"D:\private\dist\package.whl",
+            "command": ["vivado", "-source", r"D:\private\run.tcl"],
+            "command_result": {"stdout_tail": "Host: PRIVATE-HOST"},
+        },
+        record={
+            "qualification_status": "qualified",
+            "record_id": "a" * 64,
+            "source": {"commit": _COMMIT, "tree": _TREE},
+            "package": {
+                "name": "vivado-agent-mcp",
+                "version": "0.10.0",
+                "wheel": {"sha256": _WHEEL},
+                "sdist": {"sha256": _SDIST},
+                "provenance_verified": True,
+            },
+            "terminal": {"status": "PASS", "reason_code": "QUALIFICATION_COMPLETE"},
+            "hardware_validation": {
+                "status": "NOT_VALIDATED",
+                "validated": False,
+                "scope": "real_fpga_jtag_programming_runtime",
+            },
+        },
+        validation={"ok": True, "status": "READY"},
+        matrix_update={"ok": True, "status": "READY", "reason_code": "QUALIFICATION_MATRIX_UPDATED"},
+        publication_validation={
+            "ok": True,
+            "status": "READY",
+            "reason_code": "PUBLIC_QUALIFICATION_BUNDLE_READY",
+        },
+    )
+    serialized = json.dumps(summary, ensure_ascii=False)
+
+    assert summary["qualified"] is True
+    assert summary["hardware_validation"]["status"] == "NOT_VALIDATED"
+    assert summary["hardware_validation"]["validated"] is False
+    assert "D:\\private" not in serialized
+    assert "PRIVATE-HOST" not in serialized
+    assert "command" not in summary
+    assert "command_result" not in summary
+
+
 def test_no_live_request_is_unvalidated_and_never_qualified(tmp_path: Path) -> None:
     result_path = tmp_path / "not-run.json"
     result_path.write_text("{}", encoding="utf-8")

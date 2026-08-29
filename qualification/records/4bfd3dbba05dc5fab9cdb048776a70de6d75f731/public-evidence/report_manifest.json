@@ -1,0 +1,631 @@
+{
+  "schema_version": 1,
+  "evidence_type": "report_manifest",
+  "source_commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+  "raw_evidence": {
+    "size": 23885,
+    "sha256": "6f11811014771da18c2478f030368e5014b098eeeab7cc308179bc9abf17d8d5"
+  },
+  "summary": {
+    "schema_version": 4,
+    "status": "WARN",
+    "run_name": "impl_1",
+    "vivado_version_short": "2021.2",
+    "vivado_build": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+    "report_command_schema": "vivado_2021_2_v1",
+    "collection_id": "report_7f75ff2b8fb9456080c4e8a08b070fe8",
+    "expected_report_count": 9,
+    "generated_report_count": 8,
+    "report_status": [
+      {
+        "category": "timing",
+        "filename": "timing_summary.rpt",
+        "present": true,
+        "current": true,
+        "command_status": "generated",
+        "mtime_ms": 1788031795311,
+        "collection_started_ms": 1788031786610,
+        "status": "current",
+        "reason": ""
+      },
+      {
+        "category": "utilization",
+        "filename": "utilization.rpt",
+        "present": true,
+        "current": true,
+        "command_status": "generated",
+        "mtime_ms": 1788031795316,
+        "collection_started_ms": 1788031786610,
+        "status": "current",
+        "reason": ""
+      },
+      {
+        "category": "drc",
+        "filename": "drc.rpt",
+        "present": true,
+        "current": true,
+        "command_status": "generated",
+        "mtime_ms": 1788031796178,
+        "collection_started_ms": 1788031786610,
+        "status": "current",
+        "reason": ""
+      },
+      {
+        "category": "methodology",
+        "filename": "methodology.rpt",
+        "present": true,
+        "current": true,
+        "command_status": "generated",
+        "mtime_ms": 1788031796522,
+        "collection_started_ms": 1788031786610,
+        "status": "current",
+        "reason": ""
+      },
+      {
+        "category": "qor",
+        "filename": "qor_summary.rpt",
+        "present": true,
+        "current": false,
+        "command_status": "unavailable",
+        "mtime_ms": 1788031785373,
+        "collection_started_ms": 1788031786610,
+        "status": "stale",
+        "reason": "qor_summary.rpt was not generated; report_qor_summary status=unavailable; message=report_qor_summary command is unavailable in this Vivado version.",
+        "optional": true,
+        "optional_due_to_vivado_version": true,
+        "severity": "info",
+        "user_message": "Vivado does not support report_qor_summary in this version; this is not a design failure."
+      },
+      {
+        "category": "cdc",
+        "filename": "cdc.rpt",
+        "present": true,
+        "current": true,
+        "command_status": "generated",
+        "mtime_ms": 1788031796529,
+        "collection_started_ms": 1788031786610,
+        "status": "current",
+        "reason": ""
+      },
+      {
+        "category": "clock_interaction",
+        "filename": "clock_interaction.rpt",
+        "present": true,
+        "current": true,
+        "command_status": "generated",
+        "mtime_ms": 1788031796535,
+        "collection_started_ms": 1788031786610,
+        "status": "current",
+        "reason": ""
+      },
+      {
+        "category": "power",
+        "filename": "power.rpt",
+        "present": true,
+        "current": true,
+        "command_status": "generated",
+        "mtime_ms": 1788031796597,
+        "collection_started_ms": 1788031786610,
+        "status": "current",
+        "reason": ""
+      },
+      {
+        "category": "messages",
+        "filename": "messages.log",
+        "present": true,
+        "current": true,
+        "command_status": "generated",
+        "mtime_ms": 1788031796609,
+        "collection_started_ms": 1788031786610,
+        "status": "current",
+        "reason": ""
+      }
+    ],
+    "missing_reports": [
+      {
+        "category": "qor",
+        "filename": "qor_summary.rpt",
+        "present": true,
+        "current": false,
+        "command_status": "unavailable",
+        "mtime_ms": 1788031785373,
+        "collection_started_ms": 1788031786610,
+        "status": "stale",
+        "reason": "qor_summary.rpt was not generated; report_qor_summary status=unavailable; message=report_qor_summary command is unavailable in this Vivado version.",
+        "optional": true,
+        "optional_due_to_vivado_version": true,
+        "severity": "info",
+        "user_message": "Vivado does not support report_qor_summary in this version; this is not a design failure."
+      }
+    ],
+    "required_missing_reports": [],
+    "command_outcomes": {
+      "timing": {
+        "status": "generated",
+        "message": "report_timing_summary completed"
+      },
+      "utilization": {
+        "status": "generated",
+        "message": "report_utilization completed"
+      },
+      "drc": {
+        "status": "generated",
+        "message": "report_drc completed"
+      },
+      "methodology": {
+        "status": "generated",
+        "message": "report_methodology completed"
+      },
+      "qor": {
+        "status": "unavailable",
+        "message": "report_qor_summary command is unavailable in this Vivado version"
+      },
+      "cdc": {
+        "status": "generated",
+        "message": "report_cdc completed"
+      },
+      "clock_interaction": {
+        "status": "generated",
+        "message": "report_clock_interaction completed"
+      },
+      "power": {
+        "status": "generated",
+        "message": "report_power completed"
+      },
+      "messages": {
+        "status": "generated",
+        "message": "scanned complete current runme.log for diagnostic messages"
+      }
+    },
+    "run_snapshot": {
+      "run_name": "impl_1",
+      "status": "write_bitstream Complete!",
+      "progress": "100%",
+      "needs_refresh": "0",
+      "session_generation_id": "3506dcaf356a4d91bdc4bad18b249dc7"
+    },
+    "evidence_freshness": {
+      "status": "FRESH",
+      "run_name": "impl_1",
+      "collection_id": "report_7f75ff2b8fb9456080c4e8a08b070fe8",
+      "collected_at": "2026-08-29T19:29:56Z",
+      "collection_started_ms": "1788031786610",
+      "needs_refresh": false,
+      "source": "collect_report_bundle",
+      "reasons": []
+    },
+    "source_log_evidence": {
+      "status": "FRESH",
+      "size": 37188,
+      "mtime": 1788031779,
+      "sha256": "8c251c8cc3f3393d05d01502a7f1d3c36bc51e2d69d174ebda0c0e858d6a207a",
+      "complete_scan": true,
+      "source_stable": true,
+      "messages_extracted_count": 0,
+      "reasons": []
+    },
+    "design_execution_identity": {
+      "status": "READY",
+      "sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+      "identity": {
+        "schema_version": 1,
+        "project_name": "s01_counter",
+        "part": "xc7a35tcpg236-1",
+        "top": "qualification_counter",
+        "vivado_version_short": "2021.2",
+        "vivado_version_full": "Vivado v2021.2 (64-bit) SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021 Copyright 1986-2021 Xilinx, Inc. All Rights Reserved.",
+        "include_dirs": [],
+        "verilog_defines": [],
+        "source_compile_order": [
+          {
+            "used_in": "synthesis",
+            "order": "0",
+            "type": "SystemVerilog",
+            "library": "xil_defaultlib"
+          }
+        ],
+        "constraint_compile_order": [
+          {
+            "used_in": "implementation",
+            "order": "0",
+            "type": "XDC"
+          },
+          {
+            "used_in": "synthesis",
+            "order": "0",
+            "type": "XDC"
+          }
+        ],
+        "run_configurations": [
+          {
+            "run": "impl_1",
+            "property": "AUTO_INCREMENTAL_CHECKPOINT",
+            "value": "0"
+          },
+          {
+            "run": "impl_1",
+            "property": "CONSTRSET",
+            "value": "constrs_1"
+          },
+          {
+            "run": "impl_1",
+            "property": "FLOW",
+            "value": "Vivado Implementation 2021"
+          },
+          {
+            "run": "impl_1",
+            "property": "INCREMENTAL_CHECKPOINT",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "PART",
+            "value": "xc7a35tcpg236-1"
+          },
+          {
+            "run": "impl_1",
+            "property": "SRCSET",
+            "value": "sources_1"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+            "value": "1"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+            "value": "1"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+            "value": "0"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+            "value": "0"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "impl_1",
+            "property": "STRATEGY",
+            "value": "Vivado Implementation Defaults"
+          },
+          {
+            "run": "synth_1",
+            "property": "AUTO_INCREMENTAL_CHECKPOINT",
+            "value": "1"
+          },
+          {
+            "run": "synth_1",
+            "property": "CONSTRSET",
+            "value": "constrs_1"
+          },
+          {
+            "run": "synth_1",
+            "property": "FLOW",
+            "value": "Vivado Synthesis 2021"
+          },
+          {
+            "run": "synth_1",
+            "property": "INCREMENTAL_CHECKPOINT",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "PART",
+            "value": "xc7a35tcpg236-1"
+          },
+          {
+            "run": "synth_1",
+            "property": "SRCSET",
+            "value": "sources_1"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.OPT_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.PLACE_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.PLACE_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.POWER_OPT_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.POWER_OPT_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.ROUTE_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.CONTROL_SET_OPT_THRESHOLD",
+            "value": "auto"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE",
+            "value": "Default"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY",
+            "value": "rebuilt"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION",
+            "value": "auto"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.KEEP_EQUIVALENT_REGISTERS",
+            "value": "0"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.NO_LC",
+            "value": "0"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.RESOURCE_SHARING",
+            "value": "auto"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.RETIMING",
+            "value": "0"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE",
+            "value": "3"
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.SYNTH_DESIGN.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STEPS.WRITE_BITSTREAM.IS_ENABLED",
+            "value": ""
+          },
+          {
+            "run": "synth_1",
+            "property": "STRATEGY",
+            "value": "Vivado Synthesis Defaults"
+          }
+        ],
+        "composite_inputs": [],
+        "files": [
+          {
+            "size": 295,
+            "mtime_ns": 1788031596450160200,
+            "sha256": "2ae6a7893b4f6f2e1566a341128daac14c6c9439cdbf70a10b8b27c9295c2d90",
+            "object_identity": [
+              9267985230617076758,
+              7318349397669543,
+              33206
+            ],
+            "nlink": 1,
+            "source_kind": "compile_source"
+          },
+          {
+            "size": 607,
+            "mtime_ns": 1788031596450160200,
+            "sha256": "afee90c3fb9b11d2869588b0ba6313d9d867abf3682347718a1cd628e187939b",
+            "object_identity": [
+              9267985230617076758,
+              5348024560695018,
+              33206
+            ],
+            "nlink": 1,
+            "source_kind": "constraint"
+          }
+        ],
+        "include_files": []
+      },
+      "issues": []
+    },
+    "design_execution_identity_sha256": "59d2b6581a3b79eab179c4830b416b5c7f85595d872ffa64a5736cbf8bdf1948",
+    "reports": [
+      {
+        "category": "cdc",
+        "size": 1153,
+        "sha256": "70c5d242abd19a0b5a2f79b3240261ef9e9240f59386da6584d11411192af92a"
+      },
+      {
+        "category": "clock_interaction",
+        "size": 1859,
+        "sha256": "59372c5ea8e7058fe265c490db9e3ca230860fdb974fb178f6b727b6954a8145"
+      },
+      {
+        "category": "drc",
+        "size": 1688,
+        "sha256": "bc9296d828b8b601249db5030b6e83c3d173b7c1ad8732af1d267e78d598d2b9"
+      },
+      {
+        "category": "messages",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "category": "methodology",
+        "size": 2613,
+        "sha256": "325702153de85bbecffe64bf4f9145fc96ba6cde9479793a397887b84b70859b"
+      },
+      {
+        "category": "power",
+        "size": 8697,
+        "sha256": "67bbdf58bdefbef87706dbf02b979d6ef8ea1ae4bd3a43e57db5dce6b987f9bb"
+      },
+      {
+        "category": "timing",
+        "size": 17811,
+        "sha256": "5c4ae5743457bd0139e1797796a6d775b95a20763e424e035f706ac211eec853"
+      },
+      {
+        "category": "utilization",
+        "size": 10267,
+        "sha256": "97362f9c7062f23a528876536020d50ebb1c67bdbb0124ff49c74de49f648ef5"
+      }
+    ]
+  },
+  "hardware_validation": {
+    "status": "NOT_VALIDATED",
+    "validated": false,
+    "scope": "real_fpga_jtag_programming_runtime"
+  }
+}
