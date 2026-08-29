@@ -247,6 +247,7 @@ def test_matrix_accepts_valid_transition_and_rejects_forged_record() -> None:
                 "hardware_validation_status": "NOT_VALIDATED",
                 "record_id": "",
                 "record_sha256": "",
+                "notes": ["A commit-bound public qualification record has not yet been attached."],
             }
         ],
     }
@@ -257,6 +258,20 @@ def test_matrix_accepts_valid_transition_and_rejects_forged_record() -> None:
     assert entry["software_validation_status"] == "QUALIFIED"
     assert entry["hardware_validation_status"] == "NOT_VALIDATED"
     assert entry["record_id"] == _qualified_record()["record_id"]
+    assert entry["record_ref"] == (
+        "qualification/records/" + _qualified_record()["source"]["commit"] + "/qualification-record.json"
+    )
+    assert entry["notes"] == [
+        (
+            "Qualified by reviewed commit-bound record "
+            + _qualified_record()["record_id"]
+            + " for source commit "
+            + _qualified_record()["source"]["commit"]
+            + "."
+        ),
+        "Qualification is limited to the no-board Project Mode software flow; FPGA/JTAG hardware remains NOT_VALIDATED.",
+    ]
+    assert all("not yet been attached" not in note for note in entry["notes"])
 
     forged = _qualified_record()
     forged["source"]["dirty"] = True
@@ -288,3 +303,40 @@ def test_packaged_qualification_fixture_is_deterministic_and_non_overwriting(tmp
     assert blocked["ok"] is False
     assert blocked["reason_code"] == "QUALIFICATION_FIXTURE_DESTINATION_NOT_EMPTY"
     assert (occupied / "sentinel.txt").read_text(encoding="utf-8") == "do not replace"
+
+
+def test_tracked_public_qualification_records_validate_and_match_matrix() -> None:
+    workspace = Path(__file__).resolve().parents[1]
+    matrix = json.loads((workspace / "qualification" / "matrix.json").read_text(encoding="utf-8"))
+    qualified_entries = [
+        entry
+        for entry in matrix["entries"]
+        if entry.get("qualification_status") == "qualified"
+    ]
+
+    assert qualified_entries
+    for entry in qualified_entries:
+        record_ref = entry["record_ref"]
+        record_path = (workspace / record_ref).resolve()
+        assert record_path.is_relative_to((workspace / "qualification" / "records").resolve())
+        assert record_path.is_file()
+
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        validation = validate_qualification_record(record)
+        stored_validation = json.loads(
+            record_path.with_name("qualification-validation.json").read_text(encoding="utf-8")
+        )
+
+        assert validation["ok"] is True
+        assert stored_validation["ok"] is True
+        assert stored_validation["record_id"] == record["record_id"]
+        assert entry["record_id"] == record["record_id"]
+        assert entry["record_sha256"] == record["record_id"]
+        assert entry["source_commit"] == record["source"]["commit"]
+        assert entry["full_version"] == record["vivado"]["full_version"]
+        assert entry["hardware_validation_status"] == "NOT_VALIDATED"
+        assert record["hardware_validation"] == {
+            "status": "NOT_VALIDATED",
+            "validated": False,
+            "scope": "real_fpga_jtag_programming_runtime",
+        }

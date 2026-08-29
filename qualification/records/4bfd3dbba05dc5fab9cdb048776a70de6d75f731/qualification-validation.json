@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "status": "READY",
+  "qualification_status": "qualified",
+  "record_id": "9889a991f65cc3fa48d60bf12dd6cf068c424373e34f07365b7c18e5f2adaf8a",
+  "calculated_record_id": "9889a991f65cc3fa48d60bf12dd6cf068c424373e34f07365b7c18e5f2adaf8a",
+  "reason_codes": [],
+  "issues": [],
+  "hardware_validation": {
+    "status": "NOT_VALIDATED",
+    "validated": false,
+    "scope": "real_fpga_jtag_programming_runtime"
+  }
+}

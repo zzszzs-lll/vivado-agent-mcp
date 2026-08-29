@@ -519,19 +519,27 @@ def update_qualification_matrix(matrix: dict[str, Any], record: dict[str, Any]) 
             "reason_codes": ["QUALIFICATION_MATRIX_TRANSITION_REJECTED"],
             "matrix": original,
         }
+    source_commit = str(_mapping(record.get("source")).get("commit", ""))
+    record_id = str(record.get("record_id", ""))
     target.update(
         {
             "qualification_status": next_status,
             "software_validation_status": str(software.get("status", "")),
             "hardware_validation_status": str(hardware.get("status", "")),
-            "record_id": str(record.get("record_id", "")),
-            "record_sha256": str(record.get("record_id", "")),
-            "source_commit": str(_mapping(record.get("source")).get("commit", "")),
+            "record_id": record_id,
+            "record_sha256": record_id,
+            "record_ref": (
+                f"qualification/records/{source_commit}/qualification-record.json"
+                if source_commit and record_id
+                else ""
+            ),
+            "source_commit": source_commit,
             "vivado_executable_sha256": str(vivado.get("executable_sha256", "")),
             "full_version": str(vivado.get("full_version", "")),
             "terminal_status": str(terminal.get("status", "")),
             "reason_code": str(terminal.get("reason_code", "")),
             "updated_at": str(record.get("generated_at", "")),
+            "notes": _matrix_status_notes(next_status, record_id=record_id, source_commit=source_commit),
         }
     )
     updated["entries"] = sorted(
@@ -810,6 +818,20 @@ def _matrix_transition_allowed(current: str, next_status: str) -> bool:
         "rejected": {"rejected", "trusted", "compatible", "qualified"},
     }
     return next_status in transitions.get(current, set())
+
+
+def _matrix_status_notes(status: str, *, record_id: str, source_commit: str) -> list[str]:
+    identity = f"record {record_id} for source commit {source_commit}"
+    hardware_note = "Qualification is limited to the no-board Project Mode software flow; FPGA/JTAG hardware remains NOT_VALIDATED."
+    if status == "qualified":
+        return [f"Qualified by reviewed commit-bound {identity}.", hardware_note]
+    if status == "compatible":
+        return [f"Compatibility is supported by reviewed {identity}; it is not a trusted-version qualification.", hardware_note]
+    if status == "trusted":
+        return [f"Execution policy trusts this version through {identity}, but the full live qualification gate is incomplete.", hardware_note]
+    if status == "rejected":
+        return [f"Rejected by reviewed {identity}; execution remains fail-closed.", hardware_note]
+    return [f"Unvalidated record {record_id} is attached for source commit {source_commit}; it does not establish qualification.", hardware_note]
 
 
 def _record_digest(record: dict[str, Any]) -> str:

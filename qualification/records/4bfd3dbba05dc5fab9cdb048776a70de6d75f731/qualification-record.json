@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0",
+  "record_id": "9889a991f65cc3fa48d60bf12dd6cf068c424373e34f07365b7c18e5f2adaf8a",
+  "generated_at": "2026-08-29T19:31:53.165555+00:00",
+  "qualification_status": "qualified",
+  "terminal": {
+    "status": "PASS",
+    "reason_code": "QUALIFICATION_COMPLETE",
+    "message": "Commit-bound live Vivado Project Mode software qualification completed.",
+    "started_at": "2026-08-29T19:26:35.705966+00:00",
+    "ended_at": "2026-08-29T19:31:53.165555+00:00"
+  },
+  "source": {
+    "commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+    "tree": "f32d7dccd004c9df020498d56efe1741cde8f23e",
+    "dirty": false,
+    "tracked_digest": "a38472b0d6346ca744a59ef2854e555db6c11585c3f46a7ccc7730c91fa0259c",
+    "source_archive_sha256": "7f8d3dcc452bde614fe5008822d0d683f409175decd432e00b08f00b9d887ed3"
+  },
+  "package": {
+    "name": "vivado-agent-mcp",
+    "version": "0.10.0",
+    "wheel": {
+      "name": "vivado_agent_mcp-0.10.0-py3-none-any.whl",
+      "sha256": "39502a628535e6a9c20d711c9fdaee705d8b8d5acbac22efded083e6e2710d24"
+    },
+    "sdist": {
+      "name": "vivado_agent_mcp-0.10.0.tar.gz",
+      "sha256": "5f0c80413ea1bfc1d7624fb99911c84c41e65f0939a6988d45691283657b4520"
+    },
+    "source_wheel_pair_id": "9aa3bcaee26ade10e2ae6aa4618efe3c6a9b601fb2c4db6bc578d262c7ba0c0d",
+    "provenance_verified": true
+  },
+  "vivado": {
+    "identity_status": "VERIFIED",
+    "canonical_path_sha256": "9661fc8ccb09c107e5b163189ef54a7f787500e4800af8d73b50b469b66c2415",
+    "executable_sha256": "5d97b4c31ca191ca304da1d466857a65470c21ec6e9718f47537a49da40634f7",
+    "file_identity": {
+      "object_identity": [
+        9267985230617076758,
+        281474977879117,
+        33279
+      ],
+      "file_identity": [
+        9267985230617076758,
+        281474977879117,
+        33279,
+        1263,
+        1634634099000000000
+      ]
+    },
+    "version": "2021.2",
+    "full_version": "Vivado v2021.2 (64-bit)",
+    "build": "SW Build 3367213 on Tue Oct 19 02:48:09 MDT 2021 | IP Build 3369179 on Thu Oct 21 08:25:16 MDT 2021",
+    "version_attested": true
+  },
+  "runner": {
+    "os": "Windows",
+    "os_version": "10.0.26100",
+    "architecture": "AMD64",
+    "python_version": "3.12.7",
+    "runner_class": "self-hosted-windows-vivado-2021.2",
+    "identity_sha256": "d39aee6a963ebd66934b4009982b387cc9a268baeea5f59d49ef3d0d563a5b0a"
+  },
+  "fixture": {
+    "id": "minimal-counter-v1",
+    "aggregate_sha256": "5f330bba81e8b4032e678cfc66d8505c884cf569c4656d6b25a0e65339967df3",
+    "files": [
+      {
+        "path": "qualification_counter.sv",
+        "size": 295,
+        "sha256": "2ae6a7893b4f6f2e1566a341128daac14c6c9439cdbf70a10b8b27c9295c2d90"
+      },
+      {
+        "path": "tb_qualification_counter.sv",
+        "size": 950,
+        "sha256": "d32aac6cd28a39426c0d0bf525184944ae11c2457baedfc3ea17671e2bb2ab13"
+      },
+      {
+        "path": "qualification_counter.xdc",
+        "size": 607,
+        "sha256": "afee90c3fb9b11d2869588b0ba6313d9d867abf3682347718a1cd628e187939b"
+      }
+    ]
+  },
+  "execution": {
+    "tool_profile": "core",
+    "policy_version": "vivado-policy-v1",
+    "workflow_version": "live-qualification-v1",
+    "scenario_id": "S01",
+    "scenario_version": "agent-scenario-v1"
+  },
+  "evidence": {
+    "freshness": "FRESH",
+    "normalized_evidence_sha256": "607751866ea4a9c251dd7d87f59d5bb02b28332026855ee11d78920b885ac5ad",
+    "scenario_result": {
+      "size": 78312,
+      "sha256": "0caea5abdb3a2cb3647105ee1db9cdaef8671153661352178334f722af8b5c2a"
+    },
+    "artifact_manifest": {
+      "size": 46698,
+      "sha256": "2454a7f2fe0f60ad9febe729c633496b608f49b5766f92e7c2251fd3f621e762"
+    },
+    "report_manifest": {
+      "size": 23885,
+      "sha256": "6f11811014771da18c2478f030368e5014b098eeeab7cc308179bc9abf17d8d5"
+    },
+    "audit_result": {
+      "size": 282596,
+      "sha256": "f80d694cbc99405b72e19b919373f45d9df52812456430c8070ffabfd8753314"
+    },
+    "diagnostic_manifest": {
+      "size": 17148,
+      "sha256": "71814c46d0bd0c47efe1b1258bde86a3feb40bd8f919a2fabc7a558051c4a09f"
+    }
+  },
+  "software_validation": {
+    "status": "QUALIFIED",
+    "validated": true,
+    "scope": "no_board_project_mode_software_flow"
+  },
+  "hardware_validation": {
+    "status": "NOT_VALIDATED",
+    "validated": false,
+    "scope": "real_fpga_jtag_programming_runtime"
+  }
+}

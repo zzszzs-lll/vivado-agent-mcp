@@ -13,7 +13,7 @@
 | 软件成熟度 | Alpha，适合研究、开发和受监督试用 |
 | Python 包版本 | `0.10.0` |
 | 受信任执行策略 | 精确 `2021.2`，其它版本 fail-closed |
-| 公开 commit-bound Live qualification | tracked matrix 当前为 `unvalidated` |
+| 公开 commit-bound Live qualification | 源提交 [`4bfd3db`](qualification/records/4bfd3dbba05dc5fab9cdb048776a70de6d75f731/qualification-record.json) 为 `qualified`；后续提交不自动继承 |
 | 操作系统 | Windows |
 | 主要范围 | 纯 RTL/XDC 的 Vivado Project Mode 无板卡软件闭环 |
 | 真实 FPGA/JTAG 验证 | `NOT_VALIDATED` |
@@ -25,15 +25,15 @@
 | 能力 | 实现状态 | 当前验证证据 |
 |---|---|---|
 | MCP stdio、工具发现、结构化响应 | 已实现 | 单元测试、stdio 契约测试、GitHub Actions |
-| 本地 Vivado GUI 与认证 Tcl 通道 | 已实现 | fake-session；维护者报告的本地 Vivado smoke，证据未随本 commit 发布 |
+| 本地 Vivado GUI 与认证 Tcl 通道 | 已实现 | fake-session；`4bfd3db` commit-bound Vivado 2021.2 qualification record |
 | 工程、fileset、top、语言、compile order | 已实现 | 单元测试、stateful fake-session workflow；已有工程 per-file 语义重建通过本地 Vivado 2021.2 定向 smoke |
-| XSIM behavioral simulation 与失败诊断 | 已实现 | 解析/安全回归；维护者报告的本地 Vivado smoke，公开 CI 不启动 Vivado |
-| synthesis、implementation、bitstream | 已实现受管调用和结果解析 | fake-session、场景 runner；维护者报告的本地软件 smoke |
-| timing、utilization、DRC、QoR、CDC、power | 已实现报告生成和解析接口 | fixtures、单元测试；维护者报告的本地软件 smoke |
-| artifact、signoff、audit、diagnostic handoff | 已实现 | 契约测试、场景 runner、bundle 完整性与新鲜度校验 |
+| XSIM behavioral simulation 与失败诊断 | 已实现 | 解析/安全回归；`4bfd3db` 的 S01 真实 XSIM 软件资格记录，公开普通 CI 不启动 Vivado |
+| synthesis、implementation、bitstream | 已实现受管调用和结果解析 | fake-session、场景 runner；`4bfd3db` 的真实 Vivado 2021.2 S01 软件资格记录 |
+| timing、utilization、DRC、QoR、CDC、power | 已实现报告生成和解析接口 | fixtures、单元测试；`4bfd3db` 的 report/signoff/audit evidence digest |
+| artifact、signoff、audit、diagnostic handoff | 已实现 | 契约测试、场景 runner、bundle 完整性与新鲜度校验；`4bfd3db` qualification evidence |
 | Hardware Manager、JTAG、烧录、ILA/VIO | 实验接口，默认关闭 | 仅负路径和门禁测试；真实硬件 `NOT_VALIDATED` |
 
-GitHub Actions 的绿色状态证明 Python、MCP 契约和发行物安装链路。仓库当前不提供与每个 commit 绑定、可独立复核的 live Vivado acceptance evidence；表中的本地 Vivado smoke 是维护者报告，不表示 GitHub Runner 上运行过 Vivado，也不表示真实 FPGA 硬件通过。
+GitHub Actions 的绿色状态证明 Python、MCP 契约和发行物安装链路。仓库公开保存源提交 `4bfd3dbba05dc5fab9cdb048776a70de6d75f731` 的 commit-bound Vivado 2021.2 qualification record；该记录来自维护者 self-hosted Windows 环境，不表示普通 GitHub-hosted Runner 安装了 Vivado。任何后续 commit 都必须生成自己的 record，不能继承 `4bfd3db` 的资格；软件 qualification 也不表示真实 FPGA 硬件通过。
 
 ## Commit-bound Live Vivado Qualification
 
@@ -41,6 +41,7 @@ GitHub Actions 的绿色状态证明 Python、MCP 契约和发行物安装链路
 
 - [Qualification record JSON Schema](qualification/qualification-record.schema.json)
 - [Vivado qualification matrix](qualification/matrix.json)
+- [`4bfd3db` public qualification record](qualification/records/4bfd3dbba05dc5fab9cdb048776a70de6d75f731/qualification-record.json) 与 [validator result](qualification/records/4bfd3dbba05dc5fab9cdb048776a70de6d75f731/qualification-validation.json)
 - 确定性 fixture：`minimal-counter-v1`，随 wheel 分发的 SystemVerilog RTL、自检查 testbench 和 XDC
 - 本地 runner：`tests/live_qualification_runner.py`
 - 手动 self-hosted workflow：`.github/workflows/live-qualification.yml`

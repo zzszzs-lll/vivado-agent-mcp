@@ -1,20 +1,27 @@
 {
   "schema_version": 1,
-  "updated_at": "",
+  "updated_at": "2026-08-29T19:31:53.165555+00:00",
   "entries": [
     {
       "platform": "windows",
       "vivado_version": "2021.2",
       "trust_status": "trusted",
-      "qualification_status": "unvalidated",
-      "software_validation_status": "UNVALIDATED",
+      "qualification_status": "qualified",
+      "software_validation_status": "QUALIFIED",
       "hardware_validation_status": "NOT_VALIDATED",
-      "record_id": "",
-      "record_sha256": "",
+      "record_id": "9889a991f65cc3fa48d60bf12dd6cf068c424373e34f07365b7c18e5f2adaf8a",
+      "record_sha256": "9889a991f65cc3fa48d60bf12dd6cf068c424373e34f07365b7c18e5f2adaf8a",
       "notes": [
-        "Exact 2021.2 is eligible for the current fail-closed execution policy.",
-        "A commit-bound public qualification record has not yet been attached to this tracked matrix entry."
-      ]
+        "Qualified by reviewed commit-bound record 9889a991f65cc3fa48d60bf12dd6cf068c424373e34f07365b7c18e5f2adaf8a for source commit 4bfd3dbba05dc5fab9cdb048776a70de6d75f731.",
+        "Qualification is limited to the no-board Project Mode software flow; FPGA/JTAG hardware remains NOT_VALIDATED."
+      ],
+      "record_ref": "qualification/records/4bfd3dbba05dc5fab9cdb048776a70de6d75f731/qualification-record.json",
+      "source_commit": "4bfd3dbba05dc5fab9cdb048776a70de6d75f731",
+      "vivado_executable_sha256": "5d97b4c31ca191ca304da1d466857a65470c21ec6e9718f47537a49da40634f7",
+      "full_version": "Vivado v2021.2 (64-bit)",
+      "terminal_status": "PASS",
+      "reason_code": "QUALIFICATION_COMPLETE",
+      "updated_at": "2026-08-29T19:31:53.165555+00:00"
     },
     {
       "platform": "windows",

@@ -24,6 +24,15 @@ def test_pytest_cache_dir_stays_under_vivado_agent_workspace() -> None:
     assert not (workspace / ".pip_tmp").exists()
 
 
+def test_pytest_basetemp_does_not_own_the_entire_test_use_evidence_root() -> None:
+    workspace = Path(__file__).resolve().parents[1]
+    config = tomllib.loads((workspace / "pyproject.toml").read_text(encoding="utf-8"))
+    addopts = config["tool"]["pytest"]["ini_options"]["addopts"].split()
+
+    assert "--basetemp=test_use/pytest_tmp" in addopts
+    assert "--basetemp=test_use" not in addopts
+
+
 def test_pytest_tmp_path_stays_under_test_use(tmp_path: Path) -> None:
     workspace = Path(__file__).resolve().parents[1]
     test_use = workspace / "test_use"
