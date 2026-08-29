@@ -607,13 +607,16 @@ def write_public_qualification_evidence(
 ) -> dict[str, Any]:
     if set(raw_evidence_paths) != set(_REQUIRED_EVIDENCE):
         return _public_evidence_failure("PUBLIC_EVIDENCE_SET_INVALID")
-    if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+    if not _GIT_OBJECT_PATTERN.fullmatch(source_commit):
         return _public_evidence_failure("PUBLIC_EVIDENCE_SOURCE_COMMIT_INVALID")
     if not _hardware_not_validated(hardware_validation):
         return _public_evidence_failure("PUBLIC_EVIDENCE_HARDWARE_BOUNDARY_INVALID")
 
-    destination = Path(output_dir).expanduser().resolve()
-    if destination.is_symlink() or (destination.exists() and (not destination.is_dir() or any(destination.iterdir()))):
+    requested_destination = Path(output_dir).expanduser().absolute()
+    if _path_contains_link_like_component(requested_destination):
+        return _public_evidence_failure("PUBLIC_EVIDENCE_DESTINATION_SYMLINK")
+    destination = requested_destination.resolve()
+    if destination.exists() and (not destination.is_dir() or any(destination.iterdir())):
         return _public_evidence_failure("PUBLIC_EVIDENCE_DESTINATION_NOT_EMPTY")
 
     prepared: dict[str, bytes] = {}
@@ -660,6 +663,11 @@ def write_public_qualification_evidence(
         prepared[name] = json.dumps(public_document, ensure_ascii=False, indent=2).encode("utf-8") + b"\n"
 
     destination.mkdir(parents=True, exist_ok=True)
+    if (
+        _path_contains_link_like_component(requested_destination)
+        or requested_destination.resolve() != destination
+    ):
+        return _public_evidence_failure("PUBLIC_EVIDENCE_DESTINATION_CHANGED")
     entries: dict[str, dict[str, Any]] = {}
     paths: dict[str, str] = {}
     for name in _REQUIRED_EVIDENCE:
@@ -1057,6 +1065,18 @@ def _public_evidence_failure(reason_code: str, **data: Any) -> dict[str, Any]:
         "reason_code": reason_code,
         **data,
     }
+
+
+def _path_contains_link_like_component(path: Path) -> bool:
+    for candidate in (path, *path.parents):
+        if candidate.is_symlink():
+            return True
+        if not candidate.exists():
+            continue
+        is_junction = getattr(candidate, "is_junction", None)
+        if callable(is_junction) and is_junction():
+            return True
+    return False
 
 
 def _hardware_not_validated(value: dict[str, Any]) -> bool:

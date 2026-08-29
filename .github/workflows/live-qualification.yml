@@ -161,7 +161,7 @@ jobs:
             test_use/live_qualification/**/qualification-record.json
             test_use/live_qualification/**/qualification-validation.json
             test_use/live_qualification/**/qualification-matrix.json
-            test_use/live_qualification/**/qualification-summary.json
+            test_use/live_qualification/**/qualification-public-summary.json
             test_use/live_qualification/**/public-evidence/*.json
           if-no-files-found: warn
           retention-days: 30

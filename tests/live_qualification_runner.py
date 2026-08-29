@@ -213,13 +213,83 @@ def main(argv: list[str] | None = None) -> int:
         "command_result": command_result,
         "hardware_validation": record["hardware_validation"],
     }
+    public_summary = build_public_qualification_summary(
+        report=report,
+        record=record,
+        validation=validation,
+        matrix_update=matrix_update,
+        publication_validation=publication_validation,
+    )
+    public_summary_path = run_dir / "qualification-public-summary.json"
+    public_summary_path.write_text(
+        json.dumps(public_summary, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     summary_path = run_dir / "qualification-summary.json"
     report["summary_path"] = str(summary_path)
+    report["public_summary_path"] = str(public_summary_path)
     summary_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2 if args.json else None))
     if not report["ok"] or (args.require_qualified and not report["qualified"]):
         return 2
     return 0
+
+
+def build_public_qualification_summary(
+    *,
+    report: dict[str, Any],
+    record: dict[str, Any],
+    validation: dict[str, Any],
+    matrix_update: dict[str, Any],
+    publication_validation: dict[str, Any],
+) -> dict[str, Any]:
+    source = _mapping(record.get("source"))
+    package = _mapping(record.get("package"))
+    wheel = _mapping(package.get("wheel"))
+    sdist = _mapping(package.get("sdist"))
+    terminal = _mapping(record.get("terminal"))
+    hardware = _mapping(record.get("hardware_validation"))
+    return {
+        "schema_version": 1,
+        "ok": report.get("ok") is True,
+        "status": str(record.get("qualification_status", "")),
+        "qualified": report.get("qualified") is True,
+        "record_id": str(record.get("record_id", "")),
+        "source": {
+            "commit": str(source.get("commit", "")),
+            "tree": str(source.get("tree", "")),
+        },
+        "package": {
+            "name": str(package.get("name", "")),
+            "version": str(package.get("version", "")),
+            "wheel_sha256": str(wheel.get("sha256", "")),
+            "sdist_sha256": str(sdist.get("sha256", "")),
+            "provenance_verified": package.get("provenance_verified") is True,
+        },
+        "terminal": {
+            "status": str(terminal.get("status", "")),
+            "reason_code": str(terminal.get("reason_code", "")),
+        },
+        "record_validation": {
+            "ok": validation.get("ok") is True,
+            "status": str(validation.get("status", "")),
+        },
+        "matrix_update": {
+            "ok": matrix_update.get("ok") is True,
+            "status": str(matrix_update.get("status", "")),
+            "reason_code": str(matrix_update.get("reason_code", "")),
+        },
+        "published_evidence": {
+            "ok": publication_validation.get("ok") is True,
+            "status": str(publication_validation.get("status", "")),
+            "reason_code": str(publication_validation.get("reason_code", "")),
+        },
+        "hardware_validation": {
+            "status": str(hardware.get("status", "")),
+            "validated": hardware.get("validated") is True,
+            "scope": str(hardware.get("scope", "")),
+        },
+    }
 
 
 def build_qualification_record_from_run(

@@ -44,7 +44,10 @@ def test_wire_row_round_trips_path_with_legacy_delimiters() -> None:
 
 def test_tcl_wire_helpers_match_python_decoder() -> None:
     tkinter = pytest.importorskip("tkinter")
-    interpreter = tkinter.Tcl()
+    try:
+        interpreter = tkinter.Tcl()
+    except tkinter.TclError as exc:
+        pytest.skip(f"A usable Tcl runtime is unavailable: {exc}")
     interpreter.eval(tcl_wire_prelude())
     values = (
         "D:/project;variant/rtl/top.sv",

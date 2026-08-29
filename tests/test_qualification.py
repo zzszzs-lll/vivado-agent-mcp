@@ -449,6 +449,18 @@ def test_public_qualification_evidence_is_redacted_and_digest_verified(tmp_path:
     assert "raw_excerpt" not in public_text
     assert "<redacted-local-identity>" in public_text
 
+    sha256_commit = write_public_qualification_evidence(
+        raw_paths,
+        tmp_path / "sha256-record" / "public-evidence",
+        source_commit="2" * 64,
+        hardware_validation={
+            "status": "NOT_VALIDATED",
+            "validated": False,
+            "scope": "real_fpga_jtag_programming_runtime",
+        },
+    )
+    assert sha256_commit["ok"] is True
+
     extra_dir = record_path.parent / "public-evidence" / "private"
     extra_dir.mkdir()
     (extra_dir / "raw.json").write_text('{"path":"D:/private/raw.json"}', encoding="utf-8")
@@ -525,3 +537,44 @@ def test_public_qualification_evidence_is_redacted_and_digest_verified(tmp_path:
     identity_validation = validate_resealed_scenario(local_identity)
     assert identity_validation["ok"] is False
     assert "PUBLIC_EVIDENCE_LOCAL_IDENTITY_FIELD:scenario_result:file_id" in identity_validation["issues"]
+
+
+def test_public_qualification_evidence_rejects_symlink_destination(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    raw_paths = {}
+    for name in (
+        "scenario_result",
+        "artifact_manifest",
+        "report_manifest",
+        "audit_result",
+        "diagnostic_manifest",
+    ):
+        path = tmp_path / "raw" / f"{name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"status":"PASS"}', encoding="utf-8")
+        raw_paths[name] = path
+
+    destination = (tmp_path / "public-evidence").absolute()
+    original_is_symlink = Path.is_symlink
+
+    def fake_is_symlink(path: Path) -> bool:
+        if path.absolute() == destination:
+            return True
+        return original_is_symlink(path)
+
+    monkeypatch.setattr(Path, "is_symlink", fake_is_symlink)
+    blocked = write_public_qualification_evidence(
+        raw_paths,
+        destination,
+        source_commit=_COMMIT,
+        hardware_validation={
+            "status": "NOT_VALIDATED",
+            "validated": False,
+            "scope": "real_fpga_jtag_programming_runtime",
+        },
+    )
+
+    assert blocked["ok"] is False
+    assert blocked["reason_code"] == "PUBLIC_EVIDENCE_DESTINATION_SYMLINK"

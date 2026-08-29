@@ -21,6 +21,8 @@ def test_live_qualification_workflow_is_manual_self_hosted_and_fail_closed() -> 
     assert "--include-live-vivado" in workflow
     assert "--require-qualified" in workflow
     assert "qualification-record.json" in workflow
+    assert "qualification-public-summary.json" in workflow
+    assert "**/qualification-summary.json" not in workflow
     assert "test_use/live_qualification/**/public-evidence/*.json" in workflow
     assert "if: ${{ always() }}" in workflow
     assert "if-no-files-found: warn" in workflow
