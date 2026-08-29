@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+*.whl
+
+# Local environment
+.env
+.env.*
+!.env.example
+.pip_tmp/
+
+# Vivado generated outputs
+*.jou
+*.log
+*.str
+*.wdb
+*.vcd
+*.vvp
+*.bit
+*.bin
+*.mcs
+*.ltx
+*.xsa
+*.dcp
+*.rpt
+*.zip
+*.runs/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.sim/
+*.gen/
+*.srcs/sources_1/ip/*/
+.Xil/
+xsim.dir/
+*.xpr
+*.srcs/
+*.hwdef
+*.sysdef
+*.mmi
+*.bmm
+*.prm
+*.pb
+webtalk*
+
+# Project-local MCP deliverables
+vmcp_artifacts/
+vmcp_reports/
+vmcp_signoff/
+vmcp_diagnostics/
+vmcp_constraints/
+
+# Local licenses and credentials
+*.lic
+.flexlmrc
+attestation.key
+
+# Local runtime and smoke-test workspace
+.vivado_agent_mcp/
+test_use/
+
+# Editor and OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store

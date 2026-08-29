@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "vivado-agent": {
+      "command": "C:/path/to/vivado-agent-mcp/.venv/Scripts/vivado-agent-mcp.exe",
+      "args": [],
+      "env": {
+        "VIVADO_PATH": "C:/Xilinx/Vivado/2021.2/bin/vivado.bat",
+        "VIVADO_AGENT_MCP_RUNTIME_DIR": "C:/vivado-agent-mcp-runtime/runtime",
+        "VIVADO_AGENT_MCP_TRUSTED_PROJECT_ROOTS": "C:/fpga-work",
+        "VIVADO_AGENT_MCP_TOOL_PROFILE": "core",
+        "SystemRoot": "C:/WINDOWS",
+        "WINDIR": "C:/WINDOWS"
+      }
+    }
+  }
+}

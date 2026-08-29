@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vivado-agent-mcp"
+version = "0.10.0"
+description = "MCP server for structured, policy-controlled AMD Vivado Project Mode workflows."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Vivado Agent MCP Contributors" }]
+keywords = ["mcp", "vivado", "fpga", "xilinx", "amd", "eda", "tcl"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = ["mcp>=1.29,<2"]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2",
+    "pytest>=8",
+    "twine>=6",
+]
+
+[project.urls]
+Homepage = "https://github.com/zzszzs-lll/vivado-agent-mcp"
+Documentation = "https://github.com/zzszzs-lll/vivado-agent-mcp#readme"
+Issues = "https://github.com/zzszzs-lll/vivado-agent-mcp/issues"
+Repository = "https://github.com/zzszzs-lll/vivado-agent-mcp.git"
+
+[project.scripts]
+vivado-agent-mcp = "vivado_agent_mcp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --basetemp=test_use"
+cache_dir = ".vivado_agent_mcp/pytest_cache"

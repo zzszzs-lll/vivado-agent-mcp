@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vivado-agent": {
+      "command": "C:/path/to/vivado-agent-mcp/.venv/Scripts/vivado-agent-mcp.exe",
+      "args": []
+    }
+  }
+}

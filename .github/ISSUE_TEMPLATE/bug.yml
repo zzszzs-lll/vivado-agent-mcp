@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible vivado-agent-mcp defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include proprietary HDL, credentials, license files, or unredacted machine paths.
+  - type: input
+    id: package_version
+    attributes:
+      label: Package version or commit
+      placeholder: 0.10.0 or a full commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows version, Python version, and exact Vivado version reported by doctor
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include MCP tool names, redacted arguments, structured error_code, and next_actions.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Validation boundary
+      options:
+        - label: I removed credentials, private HDL, license data, usernames, and machine-specific paths.
+          required: true
+        - label: I understand that real FPGA, JTAG, programming, ILA, and VIO remain NOT_VALIDATED.
+          required: true

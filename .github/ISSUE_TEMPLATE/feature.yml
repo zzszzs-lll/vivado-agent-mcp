@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a focused Agent-facing Vivado workflow improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Engineering workflow
+      description: Describe the user outcome and where the current catalog/workflow/next_actions path is insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: structured_contract
+    attributes:
+      label: Expected structured contract
+      description: Describe required inputs, outputs, diagnostics, stop conditions, and evidence.
+    validations:
+      required: true
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Requires real hardware
+      options:
+        - "No"
+        - "Yes"
+        - "Unknown"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

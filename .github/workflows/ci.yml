@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package and tests
+        run: |
+          $pythonTag = "py$($env:PYTHON_VERSION.Replace('.', ''))"
+          python -m pip install --require-hashes -r requirements/build-windows.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install --require-hashes -r "requirements/dev-$pythonTag-windows.txt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install --no-deps --no-build-isolation -e .
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+
+      - name: Require Tcl integration runtime on Python 3.12
+        if: matrix.python-version == '3.12'
+        run: python -c "import tkinter; interpreter = tkinter.Tcl(); print(interpreter.eval('info patchlevel'))"
+
+      - name: Check repository hygiene
+        run: |
+          git diff --check
+          python tests/repository_hygiene.py
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Compile Python sources
+        run: python -m compileall src
+
+  distribution:
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        id: python311
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+
+      - name: Set up Python 3.12
+        id: python312
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: |
+          & "${{ steps.python312.outputs.python-path }}" -m pip install --require-hashes -r requirements/build-windows.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ steps.python312.outputs.python-path }}" -m pip install --require-hashes -r requirements/dev-py312-windows.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ steps.python312.outputs.python-path }}" -m pip install --no-deps --no-build-isolation -e .
+
+      - name: Build distributions
+        run: '& "${{ steps.python312.outputs.python-path }}" tests/build_distributions.py --workspace $PWD --output-dir dist --work-dir test_use/ci_distribution_build --python "${{ steps.python312.outputs.python-path }}" --json'
+
+      - name: Check distribution metadata
+        run: '& "${{ steps.python312.outputs.python-path }}" -m twine check dist/*.whl dist/*.tar.gz'
+
+      - name: Verify distribution archives
+        run: '& "${{ steps.python312.outputs.python-path }}" tests/verify_distribution_archives.py dist'
+
+      - name: Generate distribution SHA256 manifest
+        run: |
+          Get-ChildItem dist -File | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content -Encoding ascii dist/SHA256SUMS
+
+      - name: Run exact wheel clean-install smoke on Python 3.11
+        run: |
+          $wheels = @(Get-ChildItem dist/vivado_agent_mcp-*.whl)
+          if ($wheels.Count -ne 1) { throw "Expected exactly one dist wheel, found $($wheels.Count)." }
+          $wheel = $wheels[0]
+          $wheelSha256 = (Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLowerInvariant()
+          & "${{ steps.python311.outputs.python-path }}" tests/clean_install_smoke.py --python "${{ steps.python311.outputs.python-path }}" --wheel-path $wheel.FullName --expected-wheel-sha256 $wheelSha256 --runtime-lock requirements/runtime-py311-windows.txt --source-provenance-manifest dist/source-provenance.json --output-dir test_use/ci_clean_install_py311 --json
+
+      - name: Run exact wheel clean-install smoke on Python 3.12
+        run: |
+          $wheels = @(Get-ChildItem dist/vivado_agent_mcp-*.whl)
+          if ($wheels.Count -ne 1) { throw "Expected exactly one dist wheel, found $($wheels.Count)." }
+          $wheel = $wheels[0]
+          $wheelSha256 = (Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLowerInvariant()
+          & "${{ steps.python312.outputs.python-path }}" tests/clean_install_smoke.py --python "${{ steps.python312.outputs.python-path }}" --wheel-path $wheel.FullName --expected-wheel-sha256 $wheelSha256 --runtime-lock requirements/runtime-py312-windows.txt --source-provenance-manifest dist/source-provenance.json --output-dir test_use/ci_clean_install_py312 --json
+
+      - name: Run clean sdist install smoke
+        run: |
+          $sdists = @(Get-ChildItem dist/vivado_agent_mcp-*.tar.gz)
+          if ($sdists.Count -ne 1) { throw "Expected exactly one sdist, found $($sdists.Count)." }
+          $sdist = $sdists[0]
+          $venvDir = "test_use/ci_sdist_install"
+          & "${{ steps.python312.outputs.python-path }}" -m venv $venvDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$venvDir/Scripts/python.exe" -m pip install --require-hashes -r requirements/build-windows.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$venvDir/Scripts/python.exe" -m pip install --require-hashes -r requirements/runtime-py312-windows.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$venvDir/Scripts/python.exe" -m pip install --no-deps --no-build-isolation $sdist.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $versionOutput = & "$venvDir/Scripts/vivado-agent-mcp.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $sdistSha256 = (Get-FileHash -Algorithm SHA256 $sdist.FullName).Hash.ToLowerInvariant()
+          @{
+            schema_version = 1
+            status = "PASS"
+            package = @{ name = "vivado-agent-mcp"; version = $versionOutput.Trim() }
+            sdist = @{ name = $sdist.Name; sha256 = $sdistSha256 }
+            hardware_validation = @{ status = "NOT_VALIDATED"; validated = $false }
+          } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 test_use/ci_sdist_install_result.json
+
+      - name: Upload tested distributions and reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vivado-agent-mcp-distribution-${{ github.sha }}
+          path: |
+            dist/vivado_agent_mcp-*.whl
+            dist/vivado_agent_mcp-*.tar.gz
+            dist/SHA256SUMS
+            dist/source-provenance.json
+            test_use/ci_clean_install_py311/**/clean_install_smoke_result.json
+            test_use/ci_clean_install_py312/**/clean_install_smoke_result.json
+            test_use/ci_sdist_install_result.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
