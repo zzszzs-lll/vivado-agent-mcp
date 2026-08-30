@@ -2755,6 +2755,36 @@ def test_policy_decision_record_is_bounded_json_safe_and_redacts_sensitive_value
     assert json.loads(json.dumps(record, sort_keys=True)) == record
 
 
+@pytest.mark.parametrize(
+    "sensitive_key",
+    [
+        "password_digest",
+        "auth_sha256",
+        "token_digest",
+        "secret_digest",
+    ],
+)
+def test_policy_decision_record_redacts_digests_under_sensitive_keys(
+    sensitive_key: str,
+) -> None:
+    credential_digest = "a1" * 32
+    decision = PolicyDecision(
+        capability_name="get_tool_catalog",
+        allowed=False,
+        stage="argument_schema",
+        reason_code="SENSITIVE_DIGEST_TEST_BLOCK",
+        message="sensitive digest redaction",
+        evidence={sensitive_key: credential_digest},
+        stop_required=True,
+    )
+
+    serialized = json.dumps(decision.to_record(), sort_keys=True)
+
+    assert sensitive_key not in serialized
+    assert credential_digest not in serialized
+    assert "<redacted>" in serialized
+
+
 def test_policy_decision_record_bounds_custom_mapping_iteration_before_sorting() -> None:
     class UnboundedItemsMapping(Mapping[str, Any]):
         def __getitem__(self, key: str) -> Any:

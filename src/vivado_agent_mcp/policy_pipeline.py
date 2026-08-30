@@ -310,7 +310,6 @@ _SENSITIVE_KEY_PARTS = (
     "secret",
     "token",
 )
-_SAFE_SENSITIVE_SUFFIXES = ("_digest", "_sha256")
 _MAX_EVIDENCE_DEPTH = 4
 _MAX_EVIDENCE_ITEMS = 32
 _MAX_SEQUENCE_ITEMS = 16
@@ -842,8 +841,6 @@ def _validate_identity_snapshot(
 
 def _is_sensitive_key(key: str) -> bool:
     normalized = key.lower()
-    if normalized.endswith(_SAFE_SENSITIVE_SUFFIXES):
-        return False
     return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
 
 

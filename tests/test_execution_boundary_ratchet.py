@@ -36,8 +36,8 @@ SUBPROCESS_CALL_NAMES = {
     "getoutput",
     "getstatusoutput",
 }
-OS_PROCESS_CALL_NAMES = {"system", "popen", "startfile"}
-PTY_PROCESS_CALL_NAMES = {"spawn"}
+OS_PROCESS_CALL_NAMES = {"fork", "forkpty", "system", "popen", "startfile"}
+PTY_PROCESS_CALL_NAMES = {"fork", "spawn"}
 PLATFORM_PROCESS_MODULES = frozenset({"os", "posix", "nt"})
 VALUE_FLOW_METHOD_NAMES = {
     "__getitem__",
@@ -3261,6 +3261,30 @@ def test_execution_scanner_propagates_secondary_and_named_expression_aliases(
             "    nt.system('vivado')\n",
             "nt.system",
         ),
+        (
+            "import os\n"
+            "def bypass():\n"
+            "    os.fork()\n",
+            "os.fork",
+        ),
+        (
+            "import os\n"
+            "def bypass():\n"
+            "    os.forkpty()\n",
+            "os.forkpty",
+        ),
+        (
+            "import posix\n"
+            "def bypass():\n"
+            "    posix.fork()\n",
+            "posix.fork",
+        ),
+        (
+            "import pty\n"
+            "def bypass():\n"
+            "    pty.fork()\n",
+            "pty.fork",
+        ),
     ],
 )
 def test_execution_scanner_covers_low_level_platform_process_modules(
@@ -3331,6 +3355,18 @@ def test_execution_scanner_covers_low_level_platform_process_modules(
             "def safe(system):\n"
             "    system('not-a-process')\n",
             "nt.system",
+        ),
+        (
+            "import os\n"
+            "def safe(os):\n"
+            "    os.fork()\n",
+            "os.fork",
+        ),
+        (
+            "from pty import fork\n"
+            "def safe(fork):\n"
+            "    fork()\n",
+            "pty.fork",
         ),
     ],
 )
