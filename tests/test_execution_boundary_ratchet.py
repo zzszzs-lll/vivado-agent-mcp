@@ -73,6 +73,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
         callable_shadow_stack: list[set[str]] = [set()]
         module_alias_stack: list[dict[str, str]] = [{}]
         module_shadow_stack: list[set[str]] = [set()]
+        builtin_name_shadow_stack: list[set[str]] = [set()]
+        builtin_getattr_alias_stack: list[set[str]] = [set()]
+        builtin_getattr_shadow_stack: list[set[str]] = [set()]
         global_name_stack: list[set[str]] = [set()]
         nonlocal_name_stack: list[set[str]] = [set()]
         resolver_alias_stack: list[set[str]] = [set()]
@@ -97,6 +100,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
         receiver_dependent_vars_stack: list[dict[str, set[str]]] = [{}]
         alias_scope_kind_stack = ["module"]
         class_vars_export_stack: list[set[str]] = []
+        class_builtin_getattr_export_stack: list[set[str]] = []
         class_scope_depth_stack: list[int] = []
         class_method_stack: list[
             list[ast.FunctionDef | ast.AsyncFunctionDef]
@@ -273,12 +277,87 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             def _builtin_receiver_available(self, name: str) -> bool:
                 return not any(
                     name in shadowed
-                    for index, shadowed in enumerate(module_shadow_stack)
+                    for index, shadowed in enumerate(builtin_name_shadow_stack)
                     if self._bare_name_scope_is_visible(
                         index,
-                        len(module_shadow_stack),
+                        len(builtin_name_shadow_stack),
                     )
                 )
+
+            def _builtin_getattr_aliases(self) -> set[str]:
+                visible = self._visible_lexical_aliases(
+                    set(),
+                    builtin_getattr_alias_stack,
+                    builtin_getattr_shadow_stack,
+                )
+                if self._in_class_body() and class_builtin_getattr_export_stack:
+                    visible.update(class_builtin_getattr_export_stack[-1])
+                return visible
+
+            def _builtin_getattr_reference(self, node: ast.AST | None) -> bool:
+                if isinstance(node, ast.NamedExpr):
+                    return self._builtin_getattr_reference(node.value)
+                if isinstance(node, ast.IfExp):
+                    return self._builtin_getattr_reference(
+                        node.body
+                    ) or self._builtin_getattr_reference(node.orelse)
+                if isinstance(node, ast.BoolOp):
+                    return any(
+                        self._builtin_getattr_reference(candidate)
+                        for candidate in node.values
+                    )
+                lookup_source: ast.AST | None = None
+                lookup_key: ast.AST | None = None
+                if isinstance(node, ast.Subscript):
+                    lookup_source = node.value
+                    lookup_key = node.slice
+                elif (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr
+                    in {"__getitem__", "get", "pop", "setdefault"}
+                    and node.args
+                    and not node.keywords
+                ):
+                    lookup_source = node.func.value
+                    lookup_key = node.args[0]
+                if (
+                    lookup_source is not None
+                    and lookup_key is not None
+                    and _static_string_value(lookup_key) == "getattr"
+                    and self._builtins_dict_reference(lookup_source)
+                ):
+                    return True
+                if isinstance(node, ast.Name):
+                    return (
+                        (
+                            node.id == "getattr"
+                            and self._builtin_receiver_available("getattr")
+                        )
+                        or node.id in self._builtin_getattr_aliases()
+                    )
+                reference = _dotted_name(node)
+                return (
+                    reference in self._builtin_getattr_aliases()
+                    or (
+                        isinstance(node, ast.Attribute)
+                        and node.attr == "getattr"
+                        and _dotted_name(node.value) in self._builtins_aliases()
+                    )
+                )
+
+            def _builtin_getattr_descendants(
+                self,
+                reference: str | None,
+            ) -> set[str]:
+                if reference is None:
+                    return set()
+                prefix = f"{reference}."
+                return {
+                    candidate[len(reference) :]
+                    for candidate in self._builtin_getattr_aliases()
+                    if candidate.startswith(prefix)
+                }
 
             def _qualified_vars_aliases(self) -> set[str]:
                 visible: set[str] = set()
@@ -477,8 +556,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     return self._sys_reference(node.value)
                 if (
                     isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Name)
-                    and node.func.id == "getattr"
+                    and self._builtin_getattr_reference(node.func)
                     and len(node.args) == 2
                     and not node.keywords
                     and _static_string_value(node.args[1]) == "__dict__"
@@ -549,8 +627,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 ):
                     return self._builtins_dict_reference(node.args[0])
                 if (
-                    isinstance(node.func, ast.Name)
-                    and node.func.id == "getattr"
+                    self._builtin_getattr_reference(node.func)
                     and len(node.args) == 2
                     and not node.keywords
                     and _static_string_value(node.args[1]) == "__dict__"
@@ -584,7 +661,18 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 if isinstance(node, ast.Attribute) and node.attr in {"eval", "exec"}:
                     if _dotted_name(node.value) in self._builtins_aliases():
                         return node.attr
-                owner_node, attribute = _static_attribute_lookup(node)
+                owner_node, attribute = _static_attribute_lookup(
+                    node,
+                    builtin_getattr_available=self._builtin_receiver_available(
+                        "getattr"
+                    ),
+                    builtin_object_available=self._builtin_receiver_available(
+                        "object"
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                    vars_references=self._vars_aliases(),
+                )
                 if (
                     attribute in {"eval", "exec"}
                     and self._builtins_reference(owner_node)
@@ -817,7 +905,18 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     module_kind = self._registered_process_module_kind(node.value)
                     callable_name = node.attr
                 else:
-                    owner_node, callable_name = _static_attribute_lookup(node)
+                    owner_node, callable_name = _static_attribute_lookup(
+                        node,
+                        builtin_getattr_available=self._builtin_receiver_available(
+                            "getattr"
+                        ),
+                        builtin_object_available=self._builtin_receiver_available(
+                            "object"
+                        ),
+                        builtin_getattr_owners=self._builtins_aliases(),
+                        builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                        vars_references=self._vars_aliases(),
+                    )
                     module_kind = self._registered_process_module_kind(owner_node)
                 if module_kind is None or callable_name is None:
                     return None
@@ -838,6 +937,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     {},
                     callable_aliases,
                     self._vars_aliases(),
+                    builtin_getattr_available=self._builtin_receiver_available(
+                        "getattr"
+                    ),
+                    builtin_object_available=self._builtin_receiver_available(
+                        "object"
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
                 )
 
             def _qualified_vars_descendants(
@@ -908,12 +1015,56 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     preserve_aliases.add(reference)
                 qualified_vars_alias_stack[-1].update(preserve_aliases)
 
+            def _bind_qualified_builtin_getattr_target(
+                self,
+                node: ast.AST,
+                reference: str,
+                *,
+                builtin_getattr_alias: bool,
+            ) -> None:
+                preserve_alias = (
+                    self._conditional_depth > 0
+                    and reference in self._builtin_getattr_aliases()
+                )
+                builtin_getattr_shadow_stack[-1].add(reference)
+                builtin_getattr_alias_stack[-1].difference_update(
+                    {
+                        candidate
+                        for candidate in builtin_getattr_alias_stack[-1]
+                        if candidate == reference
+                        or candidate.startswith(f"{reference}.")
+                    }
+                )
+                if preserve_alias or builtin_getattr_alias:
+                    builtin_getattr_alias_stack[-1].add(reference)
+                if builtin_getattr_alias:
+                    self._record(node, "builtin.getattr.attribute_export")
+
             def _shadow_name(
                 self,
                 name: str,
                 *,
                 preserve_conditional_vars: bool = True,
             ) -> None:
+                visible_builtin_getattr_bindings = {
+                    reference
+                    for reference in self._builtin_getattr_aliases()
+                    if reference == name or reference.startswith(f"{name}.")
+                }
+                preserve_builtin_getattr_aliases = (
+                    visible_builtin_getattr_bindings
+                    if self._conditional_depth > 0
+                    and visible_builtin_getattr_bindings
+                    and (
+                        bool(
+                            visible_builtin_getattr_bindings
+                            & builtin_getattr_alias_stack[-1]
+                        )
+                        or alias_scope_kind_stack[-1] == "module"
+                        or name in global_name_stack[-1]
+                    )
+                    else set()
+                )
                 preserve_vars_alias = (
                     preserve_conditional_vars
                     and self._conditional_depth > 0
@@ -962,6 +1113,22 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 callable_alias_stack[-1].pop(name, None)
                 module_shadow_stack[-1].add(name)
                 module_alias_stack[-1].pop(name, None)
+                conditional_global_or_module_binding = (
+                    self._conditional_depth > 0
+                    and (
+                        alias_scope_kind_stack[-1] == "module"
+                        or name in global_name_stack[-1]
+                    )
+                )
+                if not conditional_global_or_module_binding:
+                    builtin_name_shadow_stack[-1].add(name)
+                builtin_getattr_shadow_stack[-1].add(name)
+                builtin_getattr_shadow_stack[-1].update(
+                    visible_builtin_getattr_bindings
+                )
+                builtin_getattr_alias_stack[-1].difference_update(
+                    visible_builtin_getattr_bindings
+                )
                 resolver_shadow_stack[-1].add(name)
                 resolver_alias_stack[-1].discard(name)
                 importlib_shadow_stack[-1].add(name)
@@ -993,6 +1160,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 )
                 if preserve_vars_alias:
                     vars_alias_stack[-1].add(name)
+                builtin_getattr_alias_stack[-1].update(
+                    preserve_builtin_getattr_aliases
+                )
                 if preserve_sys_alias:
                     sys_alias_stack[-1].add(name)
                 if preserve_registry_alias:
@@ -1007,6 +1177,71 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     preserve_qualified_aliases
                 )
 
+            def _delete_name(self, name: str) -> None:
+                current_index = len(alias_scope_kind_stack) - 1
+                if name in global_name_stack[-1]:
+                    target_indexes = {0, current_index}
+                elif name in nonlocal_name_stack[-1] and current_index > 0:
+                    target_indexes = {current_index - 1, current_index}
+                else:
+                    target_indexes = {current_index}
+                restore_class_lookup = alias_scope_kind_stack[-1] == "class"
+                restore_builtin_getattr = name == "getattr" and (
+                    alias_scope_kind_stack[-1] in {"module", "class"}
+                    or name in global_name_stack[-1]
+                )
+                for index in target_indexes:
+                    callable_alias_stack[index].pop(name, None)
+                    module_alias_stack[index].pop(name, None)
+                    operator_transform_alias_stack[index].pop(name, None)
+                    for aliases in (
+                        resolver_alias_stack,
+                        importlib_alias_stack,
+                        builtins_alias_stack,
+                        vars_alias_stack,
+                        sys_alias_stack,
+                        module_registry_alias_stack,
+                        operator_alias_stack,
+                    ):
+                        aliases[index].discard(name)
+                    builtin_getattr_alias_stack[index].difference_update(
+                        {
+                            reference
+                            for reference in builtin_getattr_alias_stack[index]
+                            if reference == name
+                            or reference.startswith(f"{name}.")
+                        }
+                    )
+                    if restore_class_lookup:
+                        for shadows in (
+                            callable_shadow_stack,
+                            module_shadow_stack,
+                            resolver_shadow_stack,
+                            importlib_shadow_stack,
+                            builtins_shadow_stack,
+                            vars_shadow_stack,
+                            sys_shadow_stack,
+                            module_registry_shadow_stack,
+                            operator_shadow_stack,
+                            operator_transform_shadow_stack,
+                        ):
+                            shadows[index].discard(name)
+                    if restore_builtin_getattr:
+                        builtin_name_shadow_stack[index].discard(name)
+                        builtin_getattr_shadow_stack[index].discard(name)
+                    else:
+                        builtin_name_shadow_stack[index].add(name)
+                        builtin_getattr_shadow_stack[index].add(name)
+                if self._in_class_body() and class_builtin_getattr_export_stack:
+                    class_builtin_getattr_export_stack[-1].difference_update(
+                        {
+                            reference
+                            for reference in class_builtin_getattr_export_stack[-1]
+                            if reference == name
+                            or reference.startswith(f"{name}.")
+                        }
+                    )
+
             def _bind_aliases(
                 self,
                 name: str,
@@ -1017,10 +1252,13 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 vars_alias: bool = False,
                 sys_alias: bool = False,
                 module_registry_alias: bool = False,
+                builtin_getattr_alias: bool = False,
                 operator_alias: bool = False,
                 operator_transform_kind: str | None = None,
             ) -> None:
                 self._shadow_name(name)
+                if builtin_getattr_alias:
+                    builtin_getattr_alias_stack[-1].add(name)
                 if module_kind:
                     module_alias_stack[-1][name] = module_kind
                 if call_kind:
@@ -1141,8 +1379,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     return "resolver"
                 if (
                     isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Name)
-                    and node.func.id == "getattr"
+                    and self._builtin_getattr_reference(node.func)
                     and len(node.args) >= 2
                 ):
                     attribute = _static_string_value(node.args[1])
@@ -1202,6 +1439,47 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     return Visitor._bound_names(target.value)
                 return ()
 
+            def _builtin_getattr_bound_names(
+                self,
+                target: ast.AST,
+                value: ast.AST,
+            ) -> set[str]:
+                if isinstance(target, ast.Name):
+                    return (
+                        {target.id}
+                        if self._builtin_getattr_reference(value)
+                        else set()
+                    )
+                if isinstance(target, ast.Starred):
+                    return self._builtin_getattr_bound_names(target.value, value)
+                if not isinstance(target, (ast.Tuple, ast.List)):
+                    return set()
+                if isinstance(value, (ast.Tuple, ast.List)) and len(
+                    target.elts
+                ) == len(value.elts):
+                    return set().union(
+                        *(
+                            self._builtin_getattr_bound_names(
+                                nested_target,
+                                nested_value,
+                            )
+                            for nested_target, nested_value in zip(
+                                target.elts,
+                                value.elts,
+                                strict=True,
+                            )
+                        )
+                    )
+                contains_builtin_getattr = any(
+                    self._builtin_getattr_reference(candidate)
+                    for candidate in ast.walk(value)
+                )
+                return (
+                    set(self._bound_names(target))
+                    if contains_builtin_getattr
+                    else set()
+                )
+
             @staticmethod
             def _parameter_names(arguments: ast.arguments) -> tuple[str, ...]:
                 names = [
@@ -1215,6 +1493,92 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     names.append(arguments.kwarg.arg)
                 return tuple(names)
 
+            @staticmethod
+            def _function_local_names(body: Sequence[ast.stmt]) -> set[str]:
+                class LocalBindingCollector(ast.NodeVisitor):
+                    def __init__(self) -> None:
+                        self.bound: set[str] = set()
+                        self.globals: set[str] = set()
+                        self.nonlocals: set[str] = set()
+
+                    def visit_Global(self, node: ast.Global) -> None:
+                        self.globals.update(node.names)
+
+                    def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
+                        self.nonlocals.update(node.names)
+
+                    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+                        if node.name is not None:
+                            self.bound.add(node.name)
+                        self.generic_visit(node)
+
+                    def visit_MatchAs(self, node: ast.MatchAs) -> None:
+                        if node.name is not None:
+                            self.bound.add(node.name)
+                        if node.pattern is not None:
+                            self.visit(node.pattern)
+
+                    def visit_MatchStar(self, node: ast.MatchStar) -> None:
+                        if node.name is not None:
+                            self.bound.add(node.name)
+
+                    def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
+                        if node.rest is not None:
+                            self.bound.add(node.rest)
+                        self.generic_visit(node)
+
+                    def visit_Name(self, node: ast.Name) -> None:
+                        if isinstance(node.ctx, (ast.Store, ast.Del)):
+                            self.bound.add(node.id)
+
+                    def visit_Import(self, node: ast.Import) -> None:
+                        self.bound.update(
+                            alias.asname or alias.name.split(".", maxsplit=1)[0]
+                            for alias in node.names
+                        )
+
+                    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+                        self.bound.update(
+                            alias.asname or alias.name
+                            for alias in node.names
+                            if alias.name != "*"
+                        )
+
+                    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+                        self.bound.add(node.name)
+
+                    def visit_AsyncFunctionDef(
+                        self,
+                        node: ast.AsyncFunctionDef,
+                    ) -> None:
+                        self.bound.add(node.name)
+
+                    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                        self.bound.add(node.name)
+
+                    def visit_Lambda(self, node: ast.Lambda) -> None:
+                        return None
+
+                    def _visit_comprehension(self, node: ast.AST) -> None:
+                        for generator in getattr(node, "generators", ()):
+                            self.visit(generator.iter)
+                            for condition in generator.ifs:
+                                self.visit(condition)
+                        for field_name in ("elt", "key", "value"):
+                            expression = getattr(node, field_name, None)
+                            if expression is not None:
+                                self.visit(expression)
+
+                    visit_ListComp = _visit_comprehension
+                    visit_SetComp = _visit_comprehension
+                    visit_DictComp = _visit_comprehension
+                    visit_GeneratorExp = _visit_comprehension
+
+                collector = LocalBindingCollector()
+                for statement in body:
+                    collector.visit(statement)
+                return collector.bound - collector.globals - collector.nonlocals
+
             def _parameter_default_bindings(
                 self,
                 arguments: ast.arguments,
@@ -1224,6 +1588,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     str | None,
                     str | None,
                     str | None,
+                    bool,
                     bool,
                     bool,
                     bool,
@@ -1263,6 +1628,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         self._vars_reference(default),
                         self._sys_reference(default),
                         self._module_registry_reference(default),
+                        self._builtin_getattr_reference(default),
                     )
                     for parameter, default in (*positional_defaults, *keyword_defaults)
                 )
@@ -1279,12 +1645,16 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         bool,
                         bool,
                         bool,
+                        bool,
                     ],
                     ...,
                 ],
+                local_names: set[str] | frozenset[str] = frozenset(),
             ) -> None:
                 self._push_alias_scope("function")
                 for name in self._parameter_names(arguments):
+                    self._shadow_name(name, preserve_conditional_vars=False)
+                for name in local_names:
                     self._shadow_name(name, preserve_conditional_vars=False)
                 for (
                     name,
@@ -1294,6 +1664,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     vars_alias,
                     sys_alias,
                     module_registry_alias,
+                    builtin_getattr_alias,
                 ) in bindings:
                     self._bind_aliases(
                         name,
@@ -1303,6 +1674,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         vars_alias=vars_alias,
                         sys_alias=sys_alias,
                         module_registry_alias=module_registry_alias,
+                        builtin_getattr_alias=builtin_getattr_alias,
                     )
 
             @staticmethod
@@ -1311,6 +1683,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 callable_shadow_stack.append(set())
                 module_alias_stack.append({})
                 module_shadow_stack.append(set())
+                builtin_name_shadow_stack.append(set())
+                builtin_getattr_alias_stack.append(set())
+                builtin_getattr_shadow_stack.append(set())
                 resolver_alias_stack.append(set())
                 resolver_shadow_stack.append(set())
                 importlib_alias_stack.append(set())
@@ -1360,6 +1735,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 importlib_alias_stack.pop()
                 resolver_shadow_stack.pop()
                 resolver_alias_stack.pop()
+                builtin_getattr_shadow_stack.pop()
+                builtin_getattr_alias_stack.pop()
+                builtin_name_shadow_stack.pop()
                 module_shadow_stack.pop()
                 module_alias_stack.pop()
                 callable_shadow_stack.pop()
@@ -1418,6 +1796,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 vars_alias: bool = False,
                 sys_alias: bool = False,
                 module_registry_alias: bool = False,
+                builtin_getattr_alias: bool = False,
             ) -> None:
                 if not self._in_class_body():
                     return
@@ -1434,6 +1813,19 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             )
                         if vars_alias:
                             class_vars_export_stack[-1].add(bound_name)
+                if class_builtin_getattr_export_stack:
+                    for bound_name in bound_names:
+                        if self._conditional_depth <= 0:
+                            class_builtin_getattr_export_stack[-1].difference_update(
+                                {
+                                    reference
+                                    for reference in class_builtin_getattr_export_stack[-1]
+                                    if reference == bound_name
+                                    or reference.startswith(f"{bound_name}.")
+                                }
+                            )
+                        if builtin_getattr_alias:
+                            class_builtin_getattr_export_stack[-1].add(bound_name)
                 if call_kind:
                     self._record(node, call_kind)
                 elif module_kind:
@@ -1444,6 +1836,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     self._record(node, f"{module_kind}.*")
                 elif dynamic_kind:
                     self._record(node, f"dynamic_import.{dynamic_kind}")
+                elif builtin_getattr_alias:
+                    # Class attributes are reachable through class, instance,
+                    # descriptor, inheritance, and metaprogramming paths. Ratchet
+                    # the export itself in addition to tracking qualified calls.
+                    self._record(node, "builtin.getattr.class_export")
                 elif sys_alias or module_registry_alias:
                     self._record(node, "dynamic_import.module_registry")
 
@@ -1458,6 +1855,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 vars_alias: bool = False,
                 sys_alias: bool = False,
                 module_registry_alias: bool = False,
+                builtin_getattr_alias: bool = False,
             ) -> None:
                 if bound_name not in (
                     global_name_stack[-1] | nonlocal_name_stack[-1]
@@ -1478,6 +1876,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         sys_alias_stack[0].add(bound_name)
                     elif len(sys_alias_stack) > 1:
                         sys_alias_stack[-2].add(bound_name)
+                if builtin_getattr_alias:
+                    if bound_name in global_name_stack[-1]:
+                        builtin_getattr_alias_stack[0].add(bound_name)
+                    elif len(builtin_getattr_alias_stack) > 1:
+                        builtin_getattr_alias_stack[-2].add(bound_name)
                 if call_kind:
                     self._record(node, call_kind)
                 elif module_kind:
@@ -1501,6 +1904,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 vars_alias: bool = False,
                 sys_alias: bool = False,
                 module_registry_alias: bool = False,
+                builtin_getattr_alias: bool = False,
             ) -> None:
                 if self._conditional_depth <= 0:
                     return
@@ -1614,6 +2018,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             {},
                             callable_aliases,
                             vars_references,
+                            builtin_getattr_available=self._builtin_receiver_available(
+                                "getattr"
+                            ),
+                            builtin_object_available=self._builtin_receiver_available(
+                                "object"
+                            ),
+                            builtin_getattr_owners=self._builtins_aliases(),
+                            builtin_getattr_aliases=self._builtin_getattr_aliases(),
                         )
                         if direct_call_kind:
                             self._record(candidate, direct_call_kind)
@@ -1756,7 +2168,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 super_exports: set[str],
             ) -> None:
                 function_stack.append(node.name)
-                self._push_function_scope(node.args, ())
+                self._push_function_scope(
+                    node.args,
+                    (),
+                    self._function_local_names(node.body),
+                )
                 parameter_names = set(self._parameter_names(node.args))
                 class_root = class_reference.partition(".")[0]
                 if class_root not in parameter_names:
@@ -1834,7 +2250,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     node.returns,
                 )
                 function_stack.append(node.name)
-                self._push_function_scope(node.args, bindings)
+                self._push_function_scope(
+                    node.args,
+                    bindings,
+                    self._function_local_names(node.body),
+                )
                 self._shadow_name(node.name, preserve_conditional_vars=False)
                 enclosing_conditional_depth = self._conditional_depth
                 self._conditional_depth = 0
@@ -1883,7 +2303,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     node.returns,
                 )
                 function_stack.append(node.name)
-                self._push_function_scope(node.args, bindings)
+                self._push_function_scope(
+                    node.args,
+                    bindings,
+                    self._function_local_names(node.body),
+                )
                 self._shadow_name(node.name, preserve_conditional_vars=False)
                 enclosing_conditional_depth = self._conditional_depth
                 self._conditional_depth = 0
@@ -1916,6 +2340,13 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         self._qualified_vars_source_reference(base)
                     )
                 }
+                inherited_builtin_getattr_exports = {
+                    suffix.removeprefix(".")
+                    for base in node.bases
+                    for suffix in self._builtin_getattr_descendants(
+                        _dotted_name(base)
+                    )
+                }
                 self._record_conditional_alias_exposure(
                     node,
                     bound_name=node.name,
@@ -1932,13 +2363,20 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 self._push_alias_scope("class")
                 class_scope_depth_stack.append(len(module_alias_stack) - 1)
                 class_vars_export_stack.append(inherited_class_exports)
+                class_builtin_getattr_export_stack.append(
+                    inherited_builtin_getattr_exports
+                )
                 class_method_stack.append([])
                 class_reference_stack.append(class_reference)
                 class_exports: set[str] = set()
+                class_builtin_getattr_exports: set[str] = set()
                 try:
                     for statement in node.body:
                         self.visit(statement)
                     class_exports = set(class_vars_export_stack[-1])
+                    class_builtin_getattr_exports = set(
+                        class_builtin_getattr_export_stack[-1]
+                    )
                     for method in tuple(class_method_stack[-1]):
                         self._visit_class_method_body(
                             method,
@@ -1949,6 +2387,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 finally:
                     class_reference_stack.pop()
                     class_method_stack.pop()
+                    class_builtin_getattr_export_stack.pop()
                     class_vars_export_stack.pop()
                     class_scope_depth_stack.pop()
                     self._pop_alias_scope()
@@ -1956,6 +2395,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 self._shadow_name(node.name)
                 qualified_exports = {
                     f"{node.name}.{export}" for export in class_exports
+                }
+                qualified_builtin_getattr_exports = {
+                    f"{node.name}.{export}"
+                    for export in class_builtin_getattr_exports
                 }
                 if defined_in_class_body and class_vars_export_stack:
                     if self._conditional_depth <= 0:
@@ -1968,8 +2411,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             }
                         )
                     class_vars_export_stack[-1].update(qualified_exports)
+                    class_builtin_getattr_export_stack[-1].update(
+                        qualified_builtin_getattr_exports
+                    )
                 else:
                     qualified_vars_alias_stack[-1].update(qualified_exports)
+                    builtin_getattr_alias_stack[-1].update(
+                        qualified_builtin_getattr_exports
+                    )
 
             def visit_Import(self, node: ast.Import) -> None:
                 for alias in node.names:
@@ -2055,6 +2504,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         else None
                     )
                     vars_alias = node.module == "builtins" and alias.name == "vars"
+                    builtin_getattr_alias = (
+                        node.module == "builtins" and alias.name == "getattr"
+                    )
                     module_registry_alias = (
                         node.module == "sys" and alias.name == "modules"
                     )
@@ -2073,6 +2525,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         dynamic_kind=dynamic_kind,
                         vars_alias=vars_alias,
                         module_registry_alias=module_registry_alias,
+                        builtin_getattr_alias=builtin_getattr_alias,
                     )
                     self._bind_aliases(
                         bound_name,
@@ -2082,6 +2535,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         vars_alias=vars_alias,
                         module_registry_alias=module_registry_alias,
                         operator_transform_kind=operator_transform_kind,
+                        builtin_getattr_alias=builtin_getattr_alias,
                     )
                     self._record_class_exposure(
                         node,
@@ -2091,6 +2545,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         dynamic_kind=dynamic_kind,
                         vars_alias=vars_alias,
                         module_registry_alias=module_registry_alias,
+                        builtin_getattr_alias=builtin_getattr_alias,
                     )
                     self._record_cross_scope_exposure(
                         node,
@@ -2100,6 +2555,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         dynamic_kind=dynamic_kind,
                         vars_alias=vars_alias,
                         module_registry_alias=module_registry_alias,
+                        builtin_getattr_alias=builtin_getattr_alias,
                     )
 
             def visit_Global(self, node: ast.Global) -> None:
@@ -2201,11 +2657,15 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 vars_alias = self._vars_reference(node.value)
                 sys_alias = self._sys_reference(node.value)
                 module_registry_alias = self._module_registry_reference(node.value)
+                builtin_getattr_alias = self._builtin_getattr_reference(node.value)
                 qualified_suffixes = self._qualified_vars_descendants(
                     self._qualified_vars_source_reference(node.value)
                 )
                 self._record_binding_source_exposure(node, node.value)
                 for target in node.targets:
+                    target_builtin_getattr_names = (
+                        self._builtin_getattr_bound_names(target, node.value)
+                    )
                     for name in self._bound_names(target):
                         self._record_conditional_alias_exposure(
                             node,
@@ -2226,6 +2686,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                                 if isinstance(target, ast.Name)
                                 else False
                             ),
+                            builtin_getattr_alias=(
+                                name in target_builtin_getattr_names
+                            ),
                         )
                 self.visit(node.value)
                 self._record_class_exposure(
@@ -2242,8 +2705,20 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     vars_alias=vars_alias,
                     sys_alias=sys_alias,
                     module_registry_alias=module_registry_alias,
+                    builtin_getattr_alias=builtin_getattr_alias,
                 )
                 for target in node.targets:
+                    target_builtin_getattr_names = (
+                        self._builtin_getattr_bound_names(target, node.value)
+                    )
+                    if not isinstance(target, ast.Name) and target_builtin_getattr_names:
+                        self._record_class_exposure(
+                            node,
+                            bound_names=tuple(sorted(target_builtin_getattr_names)),
+                            module_kind=None,
+                            call_kind=None,
+                            builtin_getattr_alias=True,
+                        )
                     names = self._bound_names(target)
                     for name in names:
                         self._record_cross_scope_exposure(
@@ -2265,6 +2740,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                                 if isinstance(target, ast.Name)
                                 else False
                             ),
+                            builtin_getattr_alias=(
+                                name in target_builtin_getattr_names
+                            ),
                         )
                         self._bind_aliases(
                             name,
@@ -2284,6 +2762,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                                 if isinstance(target, ast.Name)
                                 else False
                             ),
+                            builtin_getattr_alias=(
+                                name in target_builtin_getattr_names
+                            ),
                         )
                         if isinstance(target, ast.Name):
                             qualified_vars_alias_stack[-1].update(
@@ -2294,6 +2775,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         self._bind_qualified_vars_target(
                             target_reference,
                             vars_alias=vars_alias,
+                        )
+                        self._bind_qualified_builtin_getattr_target(
+                            node,
+                            target_reference,
+                            builtin_getattr_alias=builtin_getattr_alias,
                         )
 
             def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
@@ -2312,6 +2798,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 vars_alias = self._vars_reference(node.value)
                 sys_alias = self._sys_reference(node.value)
                 module_registry_alias = self._module_registry_reference(node.value)
+                builtin_getattr_alias = self._builtin_getattr_reference(node.value)
                 qualified_suffixes = self._qualified_vars_descendants(
                     self._qualified_vars_source_reference(node.value)
                 )
@@ -2333,6 +2820,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             if isinstance(node.target, ast.Name)
                             else False
                         ),
+                        builtin_getattr_alias=(
+                            builtin_getattr_alias
+                            if isinstance(node.target, ast.Name)
+                            else False
+                        ),
                     )
                 if node.value is not None:
                     self.visit(node.value)
@@ -2349,6 +2841,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     vars_alias=vars_alias,
                     sys_alias=sys_alias,
                     module_registry_alias=module_registry_alias,
+                    builtin_getattr_alias=builtin_getattr_alias,
                 )
                 for name in self._bound_names(node.target):
                     self._record_cross_scope_exposure(
@@ -2363,6 +2856,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         sys_alias=(sys_alias if isinstance(node.target, ast.Name) else False),
                         module_registry_alias=(
                             module_registry_alias
+                            if isinstance(node.target, ast.Name)
+                            else False
+                        ),
+                        builtin_getattr_alias=(
+                            builtin_getattr_alias
                             if isinstance(node.target, ast.Name)
                             else False
                         ),
@@ -2381,6 +2879,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             if isinstance(node.target, ast.Name)
                             else False
                         ),
+                        builtin_getattr_alias=(
+                            builtin_getattr_alias
+                            if isinstance(node.target, ast.Name)
+                            else False
+                        ),
                     )
                     if isinstance(node.target, ast.Name):
                         qualified_vars_alias_stack[-1].update(
@@ -2395,6 +2898,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     self._bind_qualified_vars_target(
                         target_reference,
                         vars_alias=vars_alias,
+                    )
+                    self._bind_qualified_builtin_getattr_target(
+                        node,
+                        target_reference,
+                        builtin_getattr_alias=builtin_getattr_alias,
                     )
 
             def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
@@ -2413,6 +2921,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 vars_alias = self._vars_reference(node.value)
                 sys_alias = self._sys_reference(node.value)
                 module_registry_alias = self._module_registry_reference(node.value)
+                builtin_getattr_alias = self._builtin_getattr_reference(node.value)
                 qualified_suffixes = self._qualified_vars_descendants(
                     self._qualified_vars_source_reference(node.value)
                 )
@@ -2427,6 +2936,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         vars_alias=vars_alias,
                         sys_alias=sys_alias,
                         module_registry_alias=module_registry_alias,
+                        builtin_getattr_alias=builtin_getattr_alias,
                     )
                 self.visit(node.value)
                 self._record_class_exposure(
@@ -2442,6 +2952,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     vars_alias=vars_alias,
                     sys_alias=sys_alias,
                     module_registry_alias=module_registry_alias,
+                    builtin_getattr_alias=builtin_getattr_alias,
                 )
                 if isinstance(node.target, ast.Name):
                     self._record_cross_scope_exposure(
@@ -2453,6 +2964,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         vars_alias=vars_alias,
                         sys_alias=sys_alias,
                         module_registry_alias=module_registry_alias,
+                        builtin_getattr_alias=builtin_getattr_alias,
                     )
                     self._bind_aliases(
                         node.target.id,
@@ -2462,11 +2974,18 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         vars_alias=vars_alias,
                         sys_alias=sys_alias,
                         module_registry_alias=module_registry_alias,
+                        builtin_getattr_alias=builtin_getattr_alias,
                     )
                     qualified_vars_alias_stack[-1].update(
                         f"{node.target.id}{suffix}"
                         for suffix in qualified_suffixes
                     )
+
+            def visit_Delete(self, node: ast.Delete) -> None:
+                for target in node.targets:
+                    self.visit(target)
+                    for name in self._bound_names(target):
+                        self._delete_name(name)
 
             def visit_Call(self, node: ast.Call) -> None:
                 aliases = self._callable_aliases()
@@ -2489,6 +3008,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     {},
                     aliases,
                     self._vars_aliases(),
+                    builtin_getattr_available=self._builtin_receiver_available(
+                        "getattr"
+                    ),
+                    builtin_object_available=self._builtin_receiver_available(
+                        "object"
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
                 )
                 if call_kind:
                     self._record(node, call_kind)
@@ -2543,6 +3070,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     {},
                     aliases,
                     self._vars_aliases(),
+                    builtin_getattr_available=self._builtin_receiver_available(
+                        "getattr"
+                    ),
+                    builtin_object_available=self._builtin_receiver_available(
+                        "object"
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
                 )
                 if call_kind:
                     self._record(node, call_kind)
@@ -2570,6 +3105,11 @@ def _direct_call_kind(
     function_aliases: dict[str, str],
     callable_aliases: dict[str, str],
     vars_references: set[str] | frozenset[str] = DEFAULT_VARS_REFERENCES,
+    *,
+    builtin_getattr_available: bool = True,
+    builtin_object_available: bool = True,
+    builtin_getattr_owners: set[str] | frozenset[str] = frozenset(),
+    builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
 ) -> str | None:
     function = node.func
     if isinstance(function, ast.Attribute) and function.attr == "run_tcl":
@@ -2581,6 +3121,10 @@ def _direct_call_kind(
             function_aliases,
             callable_aliases,
             vars_references,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
         )
         if dynamic_kind:
             return dynamic_kind
@@ -2590,9 +3134,20 @@ def _direct_call_kind(
         imported = function_aliases[function.id]
         if _approved_process_call_kind(imported):
             return imported
+    builtin_getattr_reference = (
+        _dotted_name(function) in builtin_getattr_aliases
+        or (
+            isinstance(function, ast.Name)
+            and function.id == "getattr"
+            and builtin_getattr_available
+        )
+    ) or (
+        isinstance(function, ast.Attribute)
+        and function.attr == "getattr"
+        and _dotted_name(function.value) in builtin_getattr_owners
+    )
     if (
-        isinstance(function, ast.Name)
-        and function.id == "getattr"
+        builtin_getattr_reference
         and len(node.args) >= 2
         and isinstance(node.args[1], ast.Constant)
     ):
@@ -2621,6 +3176,11 @@ def _callable_reference_kind(
     function_aliases: dict[str, str],
     callable_aliases: dict[str, str] | None = None,
     vars_references: set[str] | frozenset[str] = DEFAULT_VARS_REFERENCES,
+    *,
+    builtin_getattr_available: bool = True,
+    builtin_object_available: bool = True,
+    builtin_getattr_owners: set[str] | frozenset[str] = frozenset(),
+    builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
 ) -> str | None:
     callable_aliases = callable_aliases or {}
     module_dict_kind = _static_module_dict_callable_kind(
@@ -2639,6 +3199,10 @@ def _callable_reference_kind(
             function_aliases,
             callable_aliases,
             vars_references,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
         )
     if isinstance(node, ast.Name) and node.id in callable_aliases:
         return callable_aliases[node.id]
@@ -2651,7 +3215,14 @@ def _callable_reference_kind(
             candidate = f"{module_kind}.{node.attr}"
             if owner in aliases and _approved_process_call_kind(candidate):
                 return candidate
-    owner_node, attribute = _static_attribute_lookup(node)
+    owner_node, attribute = _static_attribute_lookup(
+        node,
+        builtin_getattr_available=builtin_getattr_available,
+        builtin_object_available=builtin_object_available,
+        builtin_getattr_owners=builtin_getattr_owners,
+        builtin_getattr_aliases=builtin_getattr_aliases,
+        vars_references=vars_references,
+    )
     if owner_node is not None and attribute is not None:
         if attribute == "run_tcl":
             return "run_tcl_dynamic"
@@ -2660,6 +3231,8 @@ def _callable_reference_kind(
             for module_kind, aliases in module_aliases.items():
                 if owner not in aliases:
                     continue
+                if attribute == "*":
+                    return f"{module_kind}.*"
                 candidate = f"{module_kind}.{attribute}"
                 if _approved_process_call_kind(candidate):
                     return candidate
@@ -2668,27 +3241,104 @@ def _callable_reference_kind(
 
 def _static_attribute_lookup(
     node: ast.AST | None,
+    *,
+    builtin_getattr_available: bool = True,
+    builtin_object_available: bool = True,
+    builtin_getattr_owners: set[str] | frozenset[str] = frozenset(),
+    builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
+    vars_references: set[str] | frozenset[str] = DEFAULT_VARS_REFERENCES,
 ) -> tuple[ast.AST | None, str | None]:
+    def attribute_name(
+        value: ast.AST,
+        *,
+        allow_dynamic_name: bool = False,
+    ) -> str | None:
+        resolved = _static_string_value(value)
+        if resolved is not None:
+            return resolved
+        return "*" if allow_dynamic_name else None
+
+    def builtins_dict_reference(candidate: ast.AST | None) -> bool:
+        if (
+            isinstance(candidate, ast.Attribute)
+            and candidate.attr == "__dict__"
+        ):
+            return _dotted_name(candidate.value) in builtin_getattr_owners
+        if (
+            isinstance(candidate, ast.Call)
+            and len(candidate.args) == 1
+            and not candidate.keywords
+            and _known_vars_reference_name(
+                candidate.func,
+                vars_references,
+            )
+            is not None
+        ):
+            return _dotted_name(candidate.args[0]) in builtin_getattr_owners
+        return False
+
     if not isinstance(node, ast.Call) or node.keywords:
         return None, None
+    mapping_source: ast.AST | None = None
+    mapping_key: ast.AST | None = None
+    if isinstance(node.func, ast.Subscript):
+        mapping_source = node.func.value
+        mapping_key = node.func.slice
+    elif (
+        isinstance(node.func, ast.Call)
+        and isinstance(node.func.func, ast.Attribute)
+        and node.func.func.attr in {"__getitem__", "get", "pop", "setdefault"}
+        and node.func.args
+        and not node.func.keywords
+    ):
+        mapping_source = node.func.func.value
+        mapping_key = node.func.args[0]
+    mapping_getattr_reference = (
+        mapping_source is not None
+        and mapping_key is not None
+        and _static_string_value(mapping_key) == "getattr"
+        and builtins_dict_reference(mapping_source)
+    )
+    builtin_getattr_reference = (
+        mapping_getattr_reference
+        or _dotted_name(node.func) in builtin_getattr_aliases
+        or (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and builtin_getattr_available
+        )
+    ) or (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr == "getattr"
+        and _dotted_name(node.func.value) in builtin_getattr_owners
+    )
     if (
-        isinstance(node.func, ast.Name)
-        and node.func.id == "getattr"
+        builtin_getattr_reference
         and len(node.args) in {2, 3}
     ):
-        return node.args[0], _static_string_value(node.args[1])
+        return node.args[0], attribute_name(
+            node.args[1],
+            allow_dynamic_name=True,
+        )
     if not isinstance(node.func, ast.Attribute):
         return None, None
     if node.func.attr != "__getattribute__":
         return None, None
     if len(node.args) == 1:
-        return node.func.value, _static_string_value(node.args[0])
+        return node.func.value, attribute_name(
+            node.args[0],
+            allow_dynamic_name=True,
+        )
     if (
         len(node.args) == 2
         and isinstance(node.func.value, ast.Name)
         and node.func.value.id == "object"
+        and builtin_object_available
     ):
-        return node.args[0], _static_string_value(node.args[1])
+        return node.args[0], attribute_name(
+            node.args[1],
+            allow_dynamic_name=True,
+        )
     return None, None
 
 
@@ -3304,6 +3954,166 @@ def test_execution_scanner_covers_low_level_platform_process_modules(
     ("source", "expected_kind"),
     [
         (
+            "import os\n"
+            "name = 'system'\n"
+            "def bypass(command):\n"
+            "    getattr(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import subprocess\n"
+            "name = 'run'\n"
+            "def bypass(argv):\n"
+            "    getattr(subprocess, name)(argv)\n",
+            "subprocess.*",
+        ),
+        (
+            "import os\n"
+            "def bypass(command, suffix):\n"
+            "    getattr(os, 'sys' + suffix)(command)\n",
+            "os.*",
+        ),
+        (
+            "import subprocess\n"
+            "def bypass(argv, choose_name):\n"
+            "    getattr(subprocess, choose_name())(argv)\n",
+            "subprocess.*",
+        ),
+        (
+            "import os\n"
+            "def bypass(flag, name, command):\n"
+            "    global getattr\n"
+            "    if flag:\n"
+            "        getattr = lambda *_: (lambda *_: None)\n"
+            "    getattr(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import builtins\n"
+            "import os\n"
+            "def bypass(choose_name, command):\n"
+            "    builtins.getattr(os, choose_name())(command)\n",
+            "os.*",
+        ),
+        (
+            "import builtins as runtime_builtins\n"
+            "import subprocess\n"
+            "def bypass(choose_name, argv):\n"
+            "    runtime_builtins.getattr(subprocess, choose_name())(argv)\n",
+            "subprocess.*",
+        ),
+        (
+            "from builtins import getattr\n"
+            "import os\n"
+            "def bypass(command):\n"
+            "    getattr(os, 'system')(command)\n",
+            "os.system",
+        ),
+        (
+            "from builtins import getattr as reflect\n"
+            "import subprocess\n"
+            "def bypass(name, argv):\n"
+            "    reflect(subprocess, name)(argv)\n",
+            "subprocess.*",
+        ),
+        (
+            "import os\n"
+            "reflect = getattr\n"
+            "def bypass(name, command):\n"
+            "    reflect(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def bypass(name, command):\n"
+            "    reflect = getattr\n"
+            "    reflect(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def bypass(name, command, reflect=getattr):\n"
+            "    reflect(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "getattr = lambda *_: (lambda *_: None)\n"
+            "del getattr\n"
+            "getattr(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "class Reflect:\n"
+            "    lookup = getattr\n"
+            "def bypass(name, command):\n"
+            "    Reflect.lookup(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def bypass(flag, safe, name, command):\n"
+            "    reflect = getattr if flag else safe\n"
+            "    reflect(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def bypass(name, command):\n"
+            "    reflect = None or getattr\n"
+            "    reflect(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "class Holder:\n"
+            "    pass\n"
+            "holder = Holder()\n"
+            "holder.reflect = getattr\n"
+            "holder.reflect(os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import builtins\n"
+            "import os\n"
+            "def bypass(name, command):\n"
+            "    builtins.__dict__['getattr'](os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import builtins\n"
+            "import os\n"
+            "def bypass(name, command):\n"
+            "    vars(builtins)['getattr'](os, name)(command)\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def bypass(name, command):\n"
+            "    reflect, ignored = (getattr, None)\n"
+            "    reflect(os, name)(command)\n",
+            "os.*",
+        ),
+    ],
+)
+def test_execution_scanner_conservatively_tracks_named_reflective_attributes(
+    tmp_path: Path,
+    source: str,
+    expected_kind: str,
+) -> None:
+    path = tmp_path / "named_reflective_attribute.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == expected_kind for (*_, kind) in records)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_kind"),
+    [
+        (
             "import subprocess\n"
             "sp = subprocess\n"
             "def safe(sp):\n"
@@ -3367,6 +4177,123 @@ def test_execution_scanner_covers_low_level_platform_process_modules(
             "def safe(fork):\n"
             "    fork()\n",
             "pty.fork",
+        ),
+        (
+            "import os\n"
+            "name = 'system'\n"
+            "def safe(os):\n"
+            "    getattr(os, name)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "import subprocess\n"
+            "name = 'run'\n"
+            "def safe(subprocess):\n"
+            "    getattr(subprocess, name)(['not-a-process'])\n",
+            "subprocess.*",
+        ),
+        (
+            "import os\n"
+            "def safe(os, suffix):\n"
+            "    getattr(os, 'sys' + suffix)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def safe(getattr, name):\n"
+            "    getattr(os, name)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def safe(name):\n"
+            "    getattr = lambda *_: (lambda *_: None)\n"
+            "    getattr(os, name)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "import builtins\n"
+            "import os\n"
+            "def safe(builtins, name):\n"
+            "    builtins.getattr(os, name)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "from builtins import getattr as reflect\n"
+            "import os\n"
+            "def safe(reflect, name):\n"
+            "    reflect(os, name)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def safe(name):\n"
+            "    getattr(os, name)('not-a-process')\n"
+            "    getattr = lambda *_: (lambda *_: None)\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def safe(name):\n"
+            "    getattr(os, name)('not-a-process')\n"
+            "    try:\n"
+            "        pass\n"
+            "    except Exception as getattr:\n"
+            "        pass\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def safe(name):\n"
+            "    getattr = lambda *_: (lambda *_: None)\n"
+            "    del getattr\n"
+            "    getattr(os, name)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "class Reflect:\n"
+            "    lookup = getattr\n"
+            "class Reflect:\n"
+            "    lookup = lambda *_: (lambda *_: None)\n"
+            "def safe(name):\n"
+            "    Reflect.lookup(os, name)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def safe(value, name):\n"
+            "    getattr(os, name)('not-a-process')\n"
+            "    match value:\n"
+            "        case getattr:\n"
+            "            pass\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def safe(object, name):\n"
+            "    object.__getattribute__(os, name)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "def safe(name):\n"
+            "    class SafeObject:\n"
+            "        def __getattribute__(self, *_):\n"
+            "            return lambda *_: None\n"
+            "    object = SafeObject()\n"
+            "    object.__getattribute__(os, name)('not-a-process')\n",
+            "os.*",
+        ),
+        (
+            "import os\n"
+            "class SafeObject:\n"
+            "    def __getattribute__(self, *_):\n"
+            "        return lambda *_: None\n"
+            "object = SafeObject()\n"
+            "def safe(name):\n"
+            "    object.__getattribute__(os, name)('not-a-process')\n",
+            "os.*",
         ),
     ],
 )
@@ -4812,6 +5739,18 @@ def test_execution_scanner_does_not_record_sys_modules_registry_alias_alone(
             "sys.modules['subprocess'].__getattribute__('getoutput')('vivado')\n",
             "subprocess.getoutput",
         ),
+        (
+            "import os\n"
+            "name = 'system'\n"
+            "os.__getattribute__(name)('vivado')\n",
+            "os.*",
+        ),
+        (
+            "import subprocess\n"
+            "name = 'run'\n"
+            "object.__getattribute__(subprocess, name)([])\n",
+            "subprocess.*",
+        ),
     ],
 )
 def test_execution_scanner_detects_explicit_getattribute_execution_lookups(
@@ -4830,11 +5769,6 @@ def test_execution_scanner_detects_explicit_getattribute_execution_lookups(
 @pytest.mark.parametrize(
     "source",
     [
-        (
-            "import subprocess\n"
-            "name = 'run'\n"
-            "subprocess.__getattribute__(name)([])\n"
-        ),
         (
             "import subprocess\n"
             "subprocess.__getattribute__('PIPE')\n"

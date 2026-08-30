@@ -12,7 +12,7 @@ from enum import Enum
 from itertools import islice
 from pathlib import Path
 from threading import RLock
-from types import CodeType, MappingProxyType
+from types import CodeType, FunctionType, MappingProxyType
 from typing import Any, Mapping, Protocol, Sequence
 from weakref import ReferenceType, ref
 
@@ -301,9 +301,12 @@ _PATH_ARGUMENT_NAMES = frozenset(
     }
 )
 _SENSITIVE_KEY_PARTS = (
+    "api_key",
+    "apikey",
     "argument",
     "auth",
     "command",
+    "credential",
     "password",
     "payload",
     "raw_tcl",
@@ -840,8 +843,12 @@ def _validate_identity_snapshot(
 
 
 def _is_sensitive_key(key: str) -> bool:
-    normalized = key.lower()
-    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+    normalized = re.sub(r"[^a-z0-9]+", "_", key.lower()).strip("_")
+    compact = normalized.replace("_", "")
+    return any(
+        part in normalized or part.replace("_", "") in compact
+        for part in _SENSITIVE_KEY_PARTS
+    )
 
 
 def _bounded_key(key: str, *, index: int) -> str:
@@ -936,6 +943,7 @@ def _bounded_value(
     *,
     depth: int = 0,
     parent_key: str | None = None,
+    key_path: tuple[str, ...] = (),
     budget: _EvidenceBudget | None = None,
 ) -> Any:
     budget = budget or _EvidenceBudget()
@@ -959,7 +967,8 @@ def _bounded_value(
                 bounded["_global_budget_truncated"] = True
                 break
             key = _bounded_key(raw_key, index=index)
-            if _is_sensitive_key(raw_key):
+            item_key_path = (*key_path, raw_key)
+            if _is_sensitive_key("_".join(item_key_path)):
                 budget.consume()
                 bounded[key] = "<redacted>"
             else:
@@ -967,6 +976,7 @@ def _bounded_value(
                     item,
                     depth=depth + 1,
                     parent_key=raw_key,
+                    key_path=item_key_path,
                     budget=budget,
                 )
         if len(sampled_items) > _MAX_EVIDENCE_ITEMS:
@@ -994,6 +1004,7 @@ def _bounded_value(
                     item,
                     depth=depth + 1,
                     parent_key=parent_key,
+                    key_path=key_path,
                     budget=budget,
                 )
             )
@@ -1013,6 +1024,7 @@ def _bounded_value(
             value.value,
             depth=depth,
             parent_key=parent_key,
+            key_path=key_path,
             budget=budget,
         )
     if isinstance(value, str):
@@ -2125,7 +2137,6 @@ def _create_canonical_authority_gate() -> tuple[Any, Any, Any]:
             try:
                 if object.__getattribute__(issuer, "_pipeline_ref")() is not pipeline:
                     return False
-                issuer_type = type(issuer)
                 if (
                     trusted_evaluation_code is None
                     or trusted_post_context_code is None
@@ -2140,13 +2151,6 @@ def _create_canonical_authority_gate() -> tuple[Any, Any, Any]:
                     or PolicyPipeline.evaluate.__code__ is not trusted_evaluation_code
                     or PostExecutionPolicyContext.__post_init__.__code__
                     is not trusted_post_context_code
-                    or issuer_type._issue_from_completed_evaluation.__code__
-                    is not trusted_issue_code
-                    or issuer_type._register_post_execution_context.__code__
-                    is not trusted_register_post_code
-                    or issuer_type.restore_post_execution_context.__code__
-                    is not trusted_restore_post_code
-                    or issuer_type.consume.__code__ is not trusted_consume_code
                 ):
                     return False
                 current_stages = tuple(object.__getattribute__(pipeline, "_stages"))
@@ -2364,18 +2368,198 @@ def _create_canonical_authority_gate() -> tuple[Any, Any, Any]:
 del _create_canonical_authority_gate
 
 
-class _PreExecutionAllowIssuer:
+class _PreExecutionIssuerState:
     __slots__ = (
-        "_evaluation_code",
-        "_lock",
-        "_next_serial",
-        "_next_post_serial",
-        "_pipeline_ref",
-        "_post_context_code",
-        "_post_records",
-        "_records",
-        "__weakref__",
+        "evaluation_code",
+        "lock",
+        "next_serial",
+        "next_post_serial",
+        "pipeline_ref",
+        "post_context_code",
+        "post_records",
+        "records",
     )
+
+
+class _PreExecutionAllowIssuer(frozenset[tuple[Any, ...]]):
+    __slots__ = ()
+
+    def __new__(
+        cls,
+        *,
+        trusted_pipeline: PolicyPipeline,
+        trusted_evaluation_code: CodeType,
+        trusted_post_context_code: CodeType,
+        _factory_key: object,
+    ) -> _PreExecutionAllowIssuer:
+        active_factory_key = globals().get("_TRUSTED_PRE_EXECUTION_ISSUER_KEY")
+        if active_factory_key is None or _factory_key is not active_factory_key:
+            raise TypeError(
+                "Policy authorization issuers require the package-internal trusted factory."
+            )
+        lifecycle_entries: list[tuple[Any, ...]] = [
+            ("state", _PreExecutionIssuerState())
+        ]
+
+        def seal_callable(
+            lifecycle_callable: FunctionType,
+            active_function_ids: frozenset[int] = frozenset(),
+        ) -> tuple[Any, ...]:
+            if id(lifecycle_callable) in active_function_ids:
+                return (
+                    "cycle",
+                    lifecycle_callable,
+                    lifecycle_callable.__code__,
+                )
+            nested_active_ids = active_function_ids | {id(lifecycle_callable)}
+            sealed_cells: list[tuple[Any, ...]] = []
+            for cell in lifecycle_callable.__closure__ or ():
+                cell_value = cell.cell_contents
+                if type(cell_value) is FunctionType:
+                    sealed_cells.append(
+                        (
+                            "function",
+                            seal_callable(cell_value, nested_active_ids),
+                        )
+                    )
+                else:
+                    sealed_cells.append(
+                        (
+                            "identity",
+                            type(cell_value),
+                            id(cell_value),
+                        )
+                    )
+            return (
+                "callable",
+                lifecycle_callable,
+                lifecycle_callable.__code__,
+                tuple(sealed_cells),
+            )
+
+        def unavailable_issue_pre(
+            _issuer: _PreExecutionAllowIssuer,
+            _decision: PolicyDecision,
+            _context: PolicyContext,
+            *,
+            pipeline: PolicyPipeline,
+            evaluated_context: PolicyContext,
+        ) -> None:
+            return None
+
+        def unavailable_register_post(
+            _issuer: _PreExecutionAllowIssuer,
+            _context: PostExecutionPolicyContext,
+        ) -> None:
+            return None
+
+        def unavailable_restore_post(
+            _issuer: _PreExecutionAllowIssuer,
+            _serial: int,
+            *,
+            context: PostExecutionPolicyContext,
+        ) -> None:
+            return None
+
+        def unavailable_consume_pre(
+            _issuer: _PreExecutionAllowIssuer,
+            _serial: int,
+            *,
+            decision: PolicyDecision,
+            context: PolicyContext,
+            authorization_fingerprint: str,
+        ) -> bool:
+            return False
+
+        for name, lifecycle_callable in (
+            ("issue_pre", unavailable_issue_pre),
+            ("register_post", unavailable_register_post),
+            ("restore_post", unavailable_restore_post),
+            ("consume_pre", unavailable_consume_pre),
+        ):
+            if type(lifecycle_callable) is not FunctionType:
+                raise TypeError(
+                    "Policy authorization lifecycle callables must be exact functions."
+                )
+            lifecycle_entries.append((name, seal_callable(lifecycle_callable)))
+        return frozenset.__new__(cls, lifecycle_entries)
+
+    def _mutable_state(self) -> _PreExecutionIssuerState:
+        matches = tuple(
+            entry[1]
+            for entry in self.__class__.__base__.__iter__(self)
+            if type(entry) is tuple
+            and len(entry) == 2
+            and entry[0] == "state"
+            and type(entry[1]) is _PreExecutionIssuerState
+        )
+        if len(matches) != 1:
+            raise RuntimeError("Policy authorization issuer state is invalid.")
+        return matches[0]
+
+    @property
+    def _evaluation_code(self) -> CodeType:
+        return self._mutable_state().evaluation_code
+
+    @_evaluation_code.setter
+    def _evaluation_code(self, value: CodeType) -> None:
+        self._mutable_state().evaluation_code = value
+
+    @property
+    def _post_context_code(self) -> CodeType:
+        return self._mutable_state().post_context_code
+
+    @_post_context_code.setter
+    def _post_context_code(self, value: CodeType) -> None:
+        self._mutable_state().post_context_code = value
+
+    @property
+    def _pipeline_ref(self) -> ReferenceType[PolicyPipeline]:
+        return self._mutable_state().pipeline_ref
+
+    @_pipeline_ref.setter
+    def _pipeline_ref(self, value: ReferenceType[PolicyPipeline]) -> None:
+        self._mutable_state().pipeline_ref = value
+
+    @property
+    def _lock(self) -> RLock:
+        return self._mutable_state().lock
+
+    @_lock.setter
+    def _lock(self, value: RLock) -> None:
+        self._mutable_state().lock = value
+
+    @property
+    def _next_serial(self) -> int:
+        return self._mutable_state().next_serial
+
+    @_next_serial.setter
+    def _next_serial(self, value: int) -> None:
+        self._mutable_state().next_serial = value
+
+    @property
+    def _next_post_serial(self) -> int:
+        return self._mutable_state().next_post_serial
+
+    @_next_post_serial.setter
+    def _next_post_serial(self, value: int) -> None:
+        self._mutable_state().next_post_serial = value
+
+    @property
+    def _records(self) -> dict[int, _IssuedPreExecutionAllow]:
+        return self._mutable_state().records
+
+    @_records.setter
+    def _records(self, value: dict[int, _IssuedPreExecutionAllow]) -> None:
+        self._mutable_state().records = value
+
+    @property
+    def _post_records(self) -> dict[int, _IssuedPostExecutionSnapshot]:
+        return self._mutable_state().post_records
+
+    @_post_records.setter
+    def _post_records(self, value: dict[int, _IssuedPostExecutionSnapshot]) -> None:
+        self._mutable_state().post_records = value
 
     def __init__(
         self,
@@ -2442,8 +2626,7 @@ class _PreExecutionAllowIssuer:
         evaluated_context: PolicyContext,
         _canonical_runtime: Any = _CANONICAL_AUTHORITY_RUNTIME,
     ) -> _PreExecutionAllowGrant | None:
-        canonical_authority = self._canonical_authority_verified(pipeline)
-        if not canonical_authority and not self._authority_verified(pipeline):
+        if not self._canonical_authority_verified(pipeline):
             return None
         try:
             caller_frame = sys._getframe(1)
@@ -2462,38 +2645,19 @@ class _PreExecutionAllowIssuer:
         finally:
             del caller_frame
         fingerprint = _pre_execution_authorization_fingerprint(decision)
-        if canonical_authority:
-            serial = _canonical_runtime(
-                "issue_pre",
-                pipeline,
-                self,
-                decision,
-                context,
-                fingerprint,
-            )
-            return (
-                _PreExecutionAllowGrant(self, serial)
-                if type(serial) is int
-                else None
-            )
-        with self._lock:
-            serial = self._next_serial
-            self._next_serial += 1
-            issuer_ref = ref(self)
-
-            def cleanup(observed_ref: ReferenceType[Any]) -> None:
-                issuer = issuer_ref()
-                if issuer is not None:
-                    issuer._discard(serial, observed_ref)
-
-            decision_ref = ref(decision, cleanup)
-            context_ref = ref(context, cleanup)
-            self._records[serial] = _IssuedPreExecutionAllow(
-                decision_ref=decision_ref,
-                context_ref=context_ref,
-                authorization_fingerprint=fingerprint,
-            )
-        return _PreExecutionAllowGrant(self, serial)
+        serial = _canonical_runtime(
+            "issue_pre",
+            pipeline,
+            self,
+            decision,
+            context,
+            fingerprint,
+        )
+        return (
+            _PreExecutionAllowGrant(self, serial)
+            if type(serial) is int
+            else None
+        )
 
     def _register_post_execution_context(
         self,
@@ -2501,16 +2665,9 @@ class _PreExecutionAllowIssuer:
         _canonical_runtime: Any = _CANONICAL_AUTHORITY_RUNTIME,
     ) -> _PostExecutionSnapshotGrant | None:
         trusted_pipeline = self._pipeline_ref()
-        canonical_authority = (
-            type(trusted_pipeline) is PolicyPipeline
-            and self._canonical_authority_verified(trusted_pipeline)
-        )
         if (
             type(trusted_pipeline) is not PolicyPipeline
-            or (
-                not canonical_authority
-                and not self._authority_verified(trusted_pipeline)
-            )
+            or not self._canonical_authority_verified(trusted_pipeline)
         ):
             return None
         try:
@@ -2526,40 +2683,18 @@ class _PreExecutionAllowIssuer:
         finally:
             del caller_frame
         captured = _capture_post_execution_snapshot(context)
-        if canonical_authority:
-            serial = _canonical_runtime(
-                "register_post",
-                trusted_pipeline,
-                self,
-                context,
-                captured,
-            )
-            return (
-                _PostExecutionSnapshotGrant(self, serial)
-                if type(serial) is int
-                else None
-            )
-        with self._lock:
-            serial = self._next_post_serial
-            self._next_post_serial += 1
-            issuer_ref = ref(self)
-
-            def cleanup(observed_ref: ReferenceType[Any]) -> None:
-                issuer = issuer_ref()
-                if issuer is not None:
-                    issuer._discard_post(serial, observed_ref)
-
-            context_ref = ref(context, cleanup)
-            self._post_records[serial] = _IssuedPostExecutionSnapshot(
-                context_ref=context_ref,
-                identity_fingerprint=captured.identity_fingerprint,
-                pre_execution_context=captured.pre_execution_context,
-                pre_execution_decision=captured.pre_execution_decision,
-                execution_result_snapshot=captured.execution_result_snapshot,
-                evidence_snapshot=captured.evidence_snapshot,
-                completed_at=captured.completed_at,
-            )
-        return _PostExecutionSnapshotGrant(self, serial)
+        serial = _canonical_runtime(
+            "register_post",
+            trusted_pipeline,
+            self,
+            context,
+            captured,
+        )
+        return (
+            _PostExecutionSnapshotGrant(self, serial)
+            if type(serial) is int
+            else None
+        )
 
     def restore_post_execution_context(
         self,
@@ -2569,45 +2704,18 @@ class _PreExecutionAllowIssuer:
         _canonical_runtime: Any = _CANONICAL_AUTHORITY_RUNTIME,
     ) -> PostExecutionPolicyContext | None:
         trusted_pipeline = self._pipeline_ref()
-        canonical_authority = (
-            type(trusted_pipeline) is PolicyPipeline
-            and self._canonical_authority_verified(trusted_pipeline)
-        )
         if (
             type(trusted_pipeline) is not PolicyPipeline
-            or (
-                not canonical_authority
-                and not self._authority_verified(trusted_pipeline)
-            )
+            or not self._canonical_authority_verified(trusted_pipeline)
         ):
             return None
-        if canonical_authority:
-            record = _canonical_runtime(
-                "restore_post",
-                trusted_pipeline,
-                self,
-                serial,
-                context,
-            )
-        else:
-            with self._lock:
-                record = self._post_records.get(serial)
-                if record is None or record.context_ref() is not context:
-                    return None
-                if (
-                    object.__getattribute__(
-                        context,
-                        "_trusted_pre_execution_pipeline",
-                    )
-                    is not trusted_pipeline
-                ):
-                    return None
-                try:
-                    observed_fingerprint = context.policy_identity_sha256
-                except Exception:
-                    return None
-                if observed_fingerprint != record.identity_fingerprint:
-                    return None
+        record = _canonical_runtime(
+            "restore_post",
+            trusted_pipeline,
+            self,
+            serial,
+            context,
+        )
         if type(record) is not _IssuedPostExecutionSnapshot:
             return None
         return _restore_post_execution_snapshot(
@@ -2630,31 +2738,19 @@ class _PreExecutionAllowIssuer:
     ) -> bool:
         trusted_pipeline = self._pipeline_ref()
         if (
-            type(trusted_pipeline) is PolicyPipeline
-            and self._canonical_authority_verified(trusted_pipeline)
+            type(trusted_pipeline) is not PolicyPipeline
+            or not self._canonical_authority_verified(trusted_pipeline)
         ):
-            return _canonical_runtime(
-                "consume_pre",
-                trusted_pipeline,
-                self,
-                serial,
-                decision,
-                context,
-                authorization_fingerprint,
-            ) is True
-        with self._lock:
-            record = self._records.get(serial)
-            if record is None:
-                return False
-            if record.decision_ref() is not decision:
-                return False
-            if record.context_ref() is not context:
-                return False
-            if record.authorization_fingerprint != authorization_fingerprint:
-                self._records.pop(serial, None)
-                return False
-            self._records.pop(serial, None)
-            return True
+            return False
+        return _canonical_runtime(
+            "consume_pre",
+            trusted_pipeline,
+            self,
+            serial,
+            decision,
+            context,
+            authorization_fingerprint,
+        ) is True
 
     def _discard(
         self,
@@ -2687,6 +2783,177 @@ class _PreExecutionAllowIssuer:
 
     def __reduce_ex__(self, protocol: int) -> None:
         raise TypeError("Policy authorization issuers must not be serialized.")
+
+
+def _bind_canonical_issuer_lifecycle(
+    verify_authority: Any,
+    authority_runtime: Any,
+) -> tuple[Any, Any, Any, Any, Any, Any]:
+    def authority_verified(
+        issuer: _PreExecutionAllowIssuer,
+        pipeline: PolicyPipeline,
+    ) -> bool:
+        try:
+            return verify_authority(pipeline, issuer) is True
+        except Exception:
+            return False
+
+    def canonical_authority_verified(
+        issuer: _PreExecutionAllowIssuer,
+        pipeline: PolicyPipeline,
+    ) -> bool:
+        return authority_verified(issuer, pipeline)
+
+    def issue_pre_execution(
+        self: _PreExecutionAllowIssuer,
+        decision: PolicyDecision,
+        context: PolicyContext,
+        *,
+        pipeline: PolicyPipeline,
+        evaluated_context: PolicyContext,
+    ) -> _PreExecutionAllowGrant | None:
+        if not canonical_authority_verified(self, pipeline):
+            return None
+        try:
+            caller_frame = sys._getframe(1)
+        except ValueError:
+            return None
+        try:
+            caller_locals = caller_frame.f_locals
+            if (
+                caller_frame.f_code is not self._evaluation_code
+                or caller_locals.get("self") is not pipeline
+                or caller_locals.get("supplied_context") is not context
+                or caller_locals.get("context") is not evaluated_context
+                or caller_locals.get("decision") is not decision
+            ):
+                return None
+        finally:
+            del caller_frame
+        fingerprint = _pre_execution_authorization_fingerprint(decision)
+        serial = authority_runtime(
+            "issue_pre",
+            pipeline,
+            self,
+            decision,
+            context,
+            fingerprint,
+        )
+        return (
+            _PreExecutionAllowGrant(self, serial)
+            if type(serial) is int
+            else None
+        )
+
+    def register_post_execution(
+        self: _PreExecutionAllowIssuer,
+        context: PostExecutionPolicyContext,
+    ) -> _PostExecutionSnapshotGrant | None:
+        trusted_pipeline = self._pipeline_ref()
+        if (
+            type(trusted_pipeline) is not PolicyPipeline
+            or not canonical_authority_verified(self, trusted_pipeline)
+        ):
+            return None
+        try:
+            caller_frame = sys._getframe(1)
+        except ValueError:
+            return None
+        try:
+            if (
+                caller_frame.f_code is not self._post_context_code
+                or caller_frame.f_locals.get("self") is not context
+            ):
+                return None
+        finally:
+            del caller_frame
+        captured = _capture_post_execution_snapshot(context)
+        serial = authority_runtime(
+            "register_post",
+            trusted_pipeline,
+            self,
+            context,
+            captured,
+        )
+        return (
+            _PostExecutionSnapshotGrant(self, serial)
+            if type(serial) is int
+            else None
+        )
+
+    def restore_post_execution(
+        self: _PreExecutionAllowIssuer,
+        serial: int,
+        *,
+        context: PostExecutionPolicyContext,
+    ) -> PostExecutionPolicyContext | None:
+        trusted_pipeline = self._pipeline_ref()
+        if (
+            type(trusted_pipeline) is not PolicyPipeline
+            or not canonical_authority_verified(self, trusted_pipeline)
+        ):
+            return None
+        record = authority_runtime(
+            "restore_post",
+            trusted_pipeline,
+            self,
+            serial,
+            context,
+        )
+        if type(record) is not _IssuedPostExecutionSnapshot:
+            return None
+        return _restore_post_execution_snapshot(
+            record,
+            trusted_pipeline,
+            self,
+        )
+
+    def consume_pre_execution(
+        self: _PreExecutionAllowIssuer,
+        serial: int,
+        *,
+        decision: PolicyDecision,
+        context: PolicyContext,
+        authorization_fingerprint: str,
+    ) -> bool:
+        trusted_pipeline = self._pipeline_ref()
+        if (
+            type(trusted_pipeline) is not PolicyPipeline
+            or not canonical_authority_verified(self, trusted_pipeline)
+        ):
+            return False
+        return authority_runtime(
+            "consume_pre",
+            trusted_pipeline,
+            self,
+            serial,
+            decision,
+            context,
+            authorization_fingerprint,
+        ) is True
+
+    return (
+        authority_verified,
+        canonical_authority_verified,
+        issue_pre_execution,
+        register_post_execution,
+        restore_post_execution,
+        consume_pre_execution,
+    )
+
+
+(
+    _PreExecutionAllowIssuer._authority_verified,
+    _PreExecutionAllowIssuer._canonical_authority_verified,
+    _PreExecutionAllowIssuer._issue_from_completed_evaluation,
+    _PreExecutionAllowIssuer._register_post_execution_context,
+    _PreExecutionAllowIssuer.restore_post_execution_context,
+    _PreExecutionAllowIssuer.consume,
+) = _bind_canonical_issuer_lifecycle(
+    _CANONICAL_AUTHORITY_VERIFY,
+    _CANONICAL_AUTHORITY_RUNTIME,
+)
+del _bind_canonical_issuer_lifecycle
 
 
 class _PreExecutionAllowGrant:
@@ -2818,6 +3085,12 @@ class PostExecutionPolicyContext:
     )
 
     def __post_init__(self) -> None:
+        lifecycle_tuple_type = ().__class__
+        lifecycle_exact_type = lifecycle_tuple_type.__class__
+        lifecycle_string_type = "".__class__
+        lifecycle_function_type = (lambda: None).__class__
+        lifecycle_code_type = (lambda: None).__code__.__class__
+
         supplied_pre_context = self.pre_execution_context
         supplied_decision = self.pre_execution_decision
         if type(supplied_pre_context) is not PolicyContext:
@@ -2840,6 +3113,60 @@ class PostExecutionPolicyContext:
             raise ValueError(
                 "Post-execution policy requires a package-trusted pre-execution pipeline."
             )
+        consume_lifecycle: tuple[FunctionType, CodeType] | None = None
+        register_lifecycle: tuple[FunctionType, CodeType] | None = None
+        lifecycle_entries_invalid = False
+        for entry in trusted_issuer.__class__.__base__.__iter__(trusted_issuer):
+            if lifecycle_exact_type(entry) is not lifecycle_tuple_type:
+                continue
+            if lifecycle_tuple_type.__len__(entry) != 2:
+                continue
+            entry_name = lifecycle_tuple_type.__getitem__(entry, 0)
+            if (
+                lifecycle_exact_type(entry_name) is not lifecycle_string_type
+                or entry_name not in ("consume_pre", "register_post")
+            ):
+                continue
+            seal = lifecycle_tuple_type.__getitem__(entry, 1)
+            if (
+                lifecycle_exact_type(seal) is not lifecycle_tuple_type
+                or lifecycle_tuple_type.__len__(seal) != 4
+            ):
+                lifecycle_entries_invalid = True
+                break
+            marker = lifecycle_tuple_type.__getitem__(seal, 0)
+            lifecycle_callable = lifecycle_tuple_type.__getitem__(seal, 1)
+            sealed_code = lifecycle_tuple_type.__getitem__(seal, 2)
+            sealed_cells = lifecycle_tuple_type.__getitem__(seal, 3)
+            if (
+                lifecycle_exact_type(marker) is not lifecycle_string_type
+                or marker != "callable"
+                or lifecycle_exact_type(lifecycle_callable)
+                is not lifecycle_function_type
+                or lifecycle_exact_type(sealed_code) is not lifecycle_code_type
+                or lifecycle_exact_type(sealed_cells) is not lifecycle_tuple_type
+                or lifecycle_tuple_type.__len__(sealed_cells) != 0
+                or lifecycle_callable.__code__ is not sealed_code
+                or lifecycle_callable.__closure__ is not None
+                or lifecycle_callable.__defaults__ is not None
+                or lifecycle_callable.__kwdefaults__ is not None
+            ):
+                lifecycle_entries_invalid = True
+                break
+            lifecycle_pair = (lifecycle_callable, sealed_code)
+            if entry_name == "consume_pre":
+                if consume_lifecycle is not None:
+                    lifecycle_entries_invalid = True
+                    break
+                consume_lifecycle = lifecycle_pair
+            else:
+                if register_lifecycle is not None:
+                    lifecycle_entries_invalid = True
+                    break
+                register_lifecycle = lifecycle_pair
+        if lifecycle_entries_invalid:
+            consume_lifecycle = None
+            register_lifecycle = None
         try:
             pre_context = _detached_policy_context_copy(supplied_pre_context)
             decision = _detached_policy_decision_copy(supplied_decision)
@@ -2926,11 +3253,21 @@ class PostExecutionPolicyContext:
             )
         provenance = object.__getattribute__(supplied_decision, "_provenance")
         authorization_fingerprint = _pre_execution_authorization_fingerprint(decision)
-        if type(provenance) is not _PreExecutionAllowGrant or not provenance.consume(
-            expected_issuer=trusted_issuer,
-            decision=supplied_decision,
-            context=supplied_pre_context,
-            authorization_fingerprint=authorization_fingerprint,
+        if (
+            type(provenance) is not _PreExecutionAllowGrant
+            or object.__getattribute__(provenance, "_issuer") is not trusted_issuer
+            or consume_lifecycle is None
+            or not consume_lifecycle[0].__class__(
+                consume_lifecycle[1],
+                consume_lifecycle[0].__globals__,
+                consume_lifecycle[1].co_name,
+            )(
+                trusted_issuer,
+                object.__getattribute__(provenance, "_serial"),
+                decision=supplied_decision,
+                context=supplied_pre_context,
+                authorization_fingerprint=authorization_fingerprint,
+            )
         ):
             raise ValueError(
                 "Post-execution policy requires one unconsumed pipeline-issued "
@@ -2950,7 +3287,15 @@ class PostExecutionPolicyContext:
             evidence_snapshot,
         )
         object.__setattr__(self, "completed_at", normalized_completed_at)
-        evaluation_grant = trusted_issuer._register_post_execution_context(self)
+        evaluation_grant = (
+            register_lifecycle[0].__class__(
+                register_lifecycle[1],
+                register_lifecycle[0].__globals__,
+                register_lifecycle[1].co_name,
+            )(trusted_issuer, self)
+            if register_lifecycle is not None
+            else None
+        )
         if type(evaluation_grant) is not _PostExecutionSnapshotGrant:
             raise ValueError(
                 "Post-execution policy requires canonical internal snapshot ownership."
@@ -3303,6 +3648,62 @@ class PolicyPipeline:
         raise TypeError("Policy pipelines must not be serialized.")
 
     def evaluate(self, context: PolicyEvaluationContext) -> PolicyDecision:
+        lifecycle_tuple_type = ().__class__
+        lifecycle_exact_type = lifecycle_tuple_type.__class__
+        lifecycle_string_type = "".__class__
+        lifecycle_function_type = (lambda: None).__class__
+        lifecycle_code_type = (lambda: None).__code__.__class__
+        issue_lifecycle: tuple[FunctionType, CodeType] | None = None
+        issue_lifecycle_invalid = False
+        candidate_issuer = object.__getattribute__(self, "_issuer")
+        if lifecycle_exact_type(candidate_issuer) is _PreExecutionAllowIssuer:
+            for entry in candidate_issuer.__class__.__base__.__iter__(
+                candidate_issuer
+            ):
+                if lifecycle_exact_type(entry) is not lifecycle_tuple_type:
+                    continue
+                if lifecycle_tuple_type.__len__(entry) != 2:
+                    continue
+                entry_name = lifecycle_tuple_type.__getitem__(entry, 0)
+                if (
+                    lifecycle_exact_type(entry_name) is not lifecycle_string_type
+                    or entry_name != "issue_pre"
+                ):
+                    continue
+                if issue_lifecycle is not None:
+                    issue_lifecycle_invalid = True
+                    break
+                seal = lifecycle_tuple_type.__getitem__(entry, 1)
+                if (
+                    lifecycle_exact_type(seal) is not lifecycle_tuple_type
+                    or lifecycle_tuple_type.__len__(seal) != 4
+                ):
+                    issue_lifecycle_invalid = True
+                    break
+                marker = lifecycle_tuple_type.__getitem__(seal, 0)
+                lifecycle_callable = lifecycle_tuple_type.__getitem__(seal, 1)
+                sealed_code = lifecycle_tuple_type.__getitem__(seal, 2)
+                sealed_cells = lifecycle_tuple_type.__getitem__(seal, 3)
+                if (
+                    lifecycle_exact_type(marker) is not lifecycle_string_type
+                    or marker != "callable"
+                    or lifecycle_exact_type(lifecycle_callable)
+                    is not lifecycle_function_type
+                    or lifecycle_exact_type(sealed_code) is not lifecycle_code_type
+                    or lifecycle_exact_type(sealed_cells)
+                    is not lifecycle_tuple_type
+                    or lifecycle_tuple_type.__len__(sealed_cells) != 0
+                    or lifecycle_callable.__code__ is not sealed_code
+                    or lifecycle_callable.__closure__ is not None
+                    or lifecycle_callable.__defaults__ is not None
+                    or lifecycle_callable.__kwdefaults__ is not None
+                ):
+                    issue_lifecycle_invalid = True
+                    break
+                issue_lifecycle = (lifecycle_callable, sealed_code)
+        if issue_lifecycle_invalid:
+            issue_lifecycle = None
+
         supplied_context = context
         (
             pipeline_phase,
@@ -3382,11 +3783,72 @@ class PolicyPipeline:
                     type(trusted_issuer) is not _PreExecutionAllowIssuer
                     or not trusted_issuer._authority_verified(trusted_pipeline)
                     or type(evaluation_grant) is not _PostExecutionSnapshotGrant
+                    or object.__getattribute__(evaluation_grant, "_issuer")
+                    is not trusted_issuer
                 ):
                     raise ValueError("Post-execution context ownership is invalid.")
-                restored = evaluation_grant.restore(
-                    expected_issuer=trusted_issuer,
-                    context=context,
+                restore_lifecycle: tuple[FunctionType, CodeType] | None = None
+                restore_lifecycle_invalid = False
+                for entry in trusted_issuer.__class__.__base__.__iter__(
+                    trusted_issuer
+                ):
+                    if lifecycle_exact_type(entry) is not lifecycle_tuple_type:
+                        continue
+                    if lifecycle_tuple_type.__len__(entry) != 2:
+                        continue
+                    entry_name = lifecycle_tuple_type.__getitem__(entry, 0)
+                    if (
+                        lifecycle_exact_type(entry_name)
+                        is not lifecycle_string_type
+                        or entry_name != "restore_post"
+                    ):
+                        continue
+                    if restore_lifecycle is not None:
+                        restore_lifecycle_invalid = True
+                        break
+                    seal = lifecycle_tuple_type.__getitem__(entry, 1)
+                    if (
+                        lifecycle_exact_type(seal) is not lifecycle_tuple_type
+                        or lifecycle_tuple_type.__len__(seal) != 4
+                    ):
+                        restore_lifecycle_invalid = True
+                        break
+                    marker = lifecycle_tuple_type.__getitem__(seal, 0)
+                    lifecycle_callable = lifecycle_tuple_type.__getitem__(seal, 1)
+                    sealed_code = lifecycle_tuple_type.__getitem__(seal, 2)
+                    sealed_cells = lifecycle_tuple_type.__getitem__(seal, 3)
+                    if (
+                        lifecycle_exact_type(marker) is not lifecycle_string_type
+                        or marker != "callable"
+                        or lifecycle_exact_type(lifecycle_callable)
+                        is not lifecycle_function_type
+                        or lifecycle_exact_type(sealed_code)
+                        is not lifecycle_code_type
+                        or lifecycle_exact_type(sealed_cells)
+                        is not lifecycle_tuple_type
+                        or lifecycle_tuple_type.__len__(sealed_cells) != 0
+                        or lifecycle_callable.__code__ is not sealed_code
+                        or lifecycle_callable.__closure__ is not None
+                        or lifecycle_callable.__defaults__ is not None
+                        or lifecycle_callable.__kwdefaults__ is not None
+                    ):
+                        restore_lifecycle_invalid = True
+                        break
+                    restore_lifecycle = (lifecycle_callable, sealed_code)
+                if restore_lifecycle_invalid:
+                    restore_lifecycle = None
+                restored = (
+                    restore_lifecycle[0].__class__(
+                        restore_lifecycle[1],
+                        restore_lifecycle[0].__globals__,
+                        restore_lifecycle[1].co_name,
+                    )(
+                        trusted_issuer,
+                        object.__getattribute__(evaluation_grant, "_serial"),
+                        context=context,
+                    )
+                    if restore_lifecycle is not None
+                    else None
                 )
                 if type(restored) is not PostExecutionPolicyContext:
                     raise ValueError("Post-execution context snapshot is invalid.")
@@ -3489,11 +3951,20 @@ class PolicyPipeline:
             and type(context) is PolicyContext
             and type(self._issuer) is _PreExecutionAllowIssuer
         ):
-            provenance = self._issuer._issue_from_completed_evaluation(
-                decision,
-                supplied_context,
-                pipeline=self,
-                evaluated_context=context,
+            provenance = (
+                issue_lifecycle[0].__class__(
+                    issue_lifecycle[1],
+                    issue_lifecycle[0].__globals__,
+                    issue_lifecycle[1].co_name,
+                )(
+                    self._issuer,
+                    decision,
+                    supplied_context,
+                    pipeline=self,
+                    evaluated_context=context,
+                )
+                if issue_lifecycle is not None
+                else None
             )
             if type(provenance) is not _PreExecutionAllowGrant:
                 return PolicyDecision(
@@ -3677,7 +4148,7 @@ def _input_schema_requires_path_boundary(schema: Mapping[str, Any]) -> bool:
             if isinstance(children, (list, tuple)):
                 stack.extend(children)
 
-        for key in ("$defs", "definitions", "dependentSchemas"):
+        for key in ("$defs", "definitions", "dependencies", "dependentSchemas"):
             children = node.get(key)
             if isinstance(children, Mapping):
                 stack.extend(children.values())

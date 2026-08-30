@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import pickle
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterator, Mapping
 from copy import deepcopy
@@ -38,6 +39,18 @@ _PRODUCT_CANONICAL_PRE_EXECUTION_PIPELINE = (
 _PRODUCT_AUTHORITY_VERIFIED = (
     policy_pipeline_module._PreExecutionAllowIssuer._authority_verified
 )
+_PRODUCT_ISSUE_PRE_EXECUTION = (
+    policy_pipeline_module._PreExecutionAllowIssuer._issue_from_completed_evaluation
+)
+_PRODUCT_REGISTER_POST_EXECUTION = (
+    policy_pipeline_module._PreExecutionAllowIssuer._register_post_execution_context
+)
+_PRODUCT_RESTORE_POST_EXECUTION = (
+    policy_pipeline_module._PreExecutionAllowIssuer.restore_post_execution_context
+)
+_PRODUCT_CONSUME_PRE_EXECUTION = (
+    policy_pipeline_module._PreExecutionAllowIssuer.consume
+)
 _TEST_TRUSTED_AUTHORITIES: dict[
     int,
     tuple[
@@ -49,7 +62,7 @@ _TEST_TRUSTED_AUTHORITIES: dict[
 ] = {}
 
 
-def _test_authority_verified(
+def _test_authority_pair_verified(
     issuer: Any,
     pipeline: PolicyPipeline,
 ) -> bool:
@@ -91,11 +104,203 @@ def _test_authority_verified(
             )
         ):
             return True
-    return _PRODUCT_AUTHORITY_VERIFIED(issuer, pipeline)
+    return False
+
+
+def _test_authority_verified(
+    issuer: Any,
+    pipeline: PolicyPipeline,
+) -> bool:
+    return _test_authority_pair_verified(
+        issuer,
+        pipeline,
+    ) or _PRODUCT_AUTHORITY_VERIFIED(issuer, pipeline)
+
+
+def _test_issue_pre_execution(
+    issuer: Any,
+    decision: PolicyDecision,
+    context: PolicyContext,
+    *,
+    pipeline: PolicyPipeline,
+    evaluated_context: PolicyContext,
+) -> Any:
+    if not _test_authority_pair_verified(issuer, pipeline):
+        return _PRODUCT_ISSUE_PRE_EXECUTION(
+            issuer,
+            decision,
+            context,
+            pipeline=pipeline,
+            evaluated_context=evaluated_context,
+        )
+    try:
+        caller_frame = sys._getframe(1)
+    except ValueError:
+        return None
+    try:
+        caller_locals = caller_frame.f_locals
+        if (
+            caller_frame.f_code is not PolicyPipeline.evaluate.__code__
+            or caller_locals.get("self") is not pipeline
+            or caller_locals.get("supplied_context") is not context
+            or caller_locals.get("context") is not evaluated_context
+            or caller_locals.get("decision") is not decision
+        ):
+            return None
+    finally:
+        del caller_frame
+    fingerprint = policy_pipeline_module._pre_execution_authorization_fingerprint(
+        decision
+    )
+    with issuer._lock:
+        serial = issuer._next_serial
+        issuer._next_serial += 1
+        issuer_ref = ref(issuer)
+
+        def cleanup(observed_ref: Any) -> None:
+            observed_issuer = issuer_ref()
+            if observed_issuer is not None:
+                observed_issuer._discard(serial, observed_ref)
+
+        issuer._records[serial] = policy_pipeline_module._IssuedPreExecutionAllow(
+            decision_ref=ref(decision, cleanup),
+            context_ref=ref(context, cleanup),
+            authorization_fingerprint=fingerprint,
+        )
+    return policy_pipeline_module._PreExecutionAllowGrant(issuer, serial)
+
+
+def _test_register_post_execution(issuer: Any, context: Any) -> Any:
+    pipeline = issuer._pipeline_ref()
+    if type(pipeline) is not PolicyPipeline or not _test_authority_pair_verified(
+        issuer,
+        pipeline,
+    ):
+        return _PRODUCT_REGISTER_POST_EXECUTION(issuer, context)
+    try:
+        caller_frame = sys._getframe(1)
+    except ValueError:
+        return None
+    try:
+        if (
+            caller_frame.f_code is not PostExecutionPolicyContext.__post_init__.__code__
+            or caller_frame.f_locals.get("self") is not context
+        ):
+            return None
+    finally:
+        del caller_frame
+    captured = policy_pipeline_module._capture_post_execution_snapshot(context)
+    with issuer._lock:
+        serial = issuer._next_post_serial
+        issuer._next_post_serial += 1
+        issuer_ref = ref(issuer)
+
+        def cleanup(observed_ref: Any) -> None:
+            observed_issuer = issuer_ref()
+            if observed_issuer is not None:
+                observed_issuer._discard_post(serial, observed_ref)
+
+        issuer._post_records[serial] = (
+            policy_pipeline_module._IssuedPostExecutionSnapshot(
+                context_ref=ref(context, cleanup),
+                identity_fingerprint=captured.identity_fingerprint,
+                pre_execution_context=captured.pre_execution_context,
+                pre_execution_decision=captured.pre_execution_decision,
+                execution_result_snapshot=captured.execution_result_snapshot,
+                evidence_snapshot=captured.evidence_snapshot,
+                completed_at=captured.completed_at,
+            )
+        )
+    return policy_pipeline_module._PostExecutionSnapshotGrant(issuer, serial)
+
+
+def _test_restore_post_execution(
+    issuer: Any,
+    serial: int,
+    *,
+    context: Any,
+) -> Any:
+    pipeline = issuer._pipeline_ref()
+    if type(pipeline) is not PolicyPipeline or not _test_authority_pair_verified(
+        issuer,
+        pipeline,
+    ):
+        return _PRODUCT_RESTORE_POST_EXECUTION(
+            issuer,
+            serial,
+            context=context,
+        )
+    with issuer._lock:
+        record = issuer._post_records.get(serial)
+        if record is None or record.context_ref() is not context:
+            return None
+        if (
+            object.__getattribute__(context, "_trusted_pre_execution_pipeline")
+            is not pipeline
+        ):
+            return None
+        try:
+            observed_fingerprint = context.policy_identity_sha256
+        except Exception:
+            return None
+        if observed_fingerprint != record.identity_fingerprint:
+            return None
+    return policy_pipeline_module._restore_post_execution_snapshot(
+        record,
+        pipeline,
+        issuer,
+    )
+
+
+def _test_consume_pre_execution(
+    issuer: Any,
+    serial: int,
+    *,
+    decision: PolicyDecision,
+    context: PolicyContext,
+    authorization_fingerprint: str,
+) -> bool:
+    pipeline = issuer._pipeline_ref()
+    if type(pipeline) is not PolicyPipeline or not _test_authority_pair_verified(
+        issuer,
+        pipeline,
+    ):
+        return _PRODUCT_CONSUME_PRE_EXECUTION(
+            issuer,
+            serial,
+            decision=decision,
+            context=context,
+            authorization_fingerprint=authorization_fingerprint,
+        )
+    with issuer._lock:
+        record = issuer._records.get(serial)
+        if (
+            record is None
+            or record.decision_ref() is not decision
+            or record.context_ref() is not context
+        ):
+            return False
+        if record.authorization_fingerprint != authorization_fingerprint:
+            issuer._records.pop(serial, None)
+            return False
+        issuer._records.pop(serial, None)
+        return True
 
 
 policy_pipeline_module._PreExecutionAllowIssuer._authority_verified = (
     _test_authority_verified
+)
+policy_pipeline_module._PreExecutionAllowIssuer._issue_from_completed_evaluation = (
+    _test_issue_pre_execution
+)
+policy_pipeline_module._PreExecutionAllowIssuer._register_post_execution_context = (
+    _test_register_post_execution
+)
+policy_pipeline_module._PreExecutionAllowIssuer.restore_post_execution_context = (
+    _test_restore_post_execution
+)
+policy_pipeline_module._PreExecutionAllowIssuer.consume = (
+    _test_consume_pre_execution
 )
 
 
@@ -172,7 +377,44 @@ def _pipeline(
     pipeline = PolicyPipeline(stages, phase=phase)
     if phase != "pre_execution":
         return pipeline
-    issuer = object.__new__(policy_pipeline_module._PreExecutionAllowIssuer)
+    issuer_type = policy_pipeline_module._PreExecutionAllowIssuer
+    lifecycle_entries = [
+        ("state", policy_pipeline_module._PreExecutionIssuerState())
+    ]
+
+    def seal_callable(
+        lifecycle_callable: Any,
+        active_function_ids: frozenset[int] = frozenset(),
+    ) -> tuple[Any, ...]:
+        if id(lifecycle_callable) in active_function_ids:
+            return ("cycle", lifecycle_callable, lifecycle_callable.__code__)
+        nested_active_ids = active_function_ids | {id(lifecycle_callable)}
+        sealed_cells = []
+        for cell in lifecycle_callable.__closure__ or ():
+            cell_value = cell.cell_contents
+            if type(cell_value) is type(seal_callable):
+                sealed_cells.append(
+                    ("function", seal_callable(cell_value, nested_active_ids))
+                )
+            else:
+                sealed_cells.append(
+                    ("identity", type(cell_value), id(cell_value))
+                )
+        return (
+            "callable",
+            lifecycle_callable,
+            lifecycle_callable.__code__,
+            tuple(sealed_cells),
+        )
+
+    for name, lifecycle_callable in (
+        ("issue_pre", issuer_type._issue_from_completed_evaluation),
+        ("register_post", issuer_type._register_post_execution_context),
+        ("restore_post", issuer_type.restore_post_execution_context),
+        ("consume_pre", issuer_type.consume),
+    ):
+        lifecycle_entries.append((name, seal_callable(lifecycle_callable)))
+    issuer = frozenset.__new__(issuer_type, lifecycle_entries)
     object.__setattr__(issuer, "_evaluation_code", PolicyPipeline.evaluate.__code__)
     object.__setattr__(
         issuer,
@@ -336,28 +578,349 @@ def test_product_canonical_authority_seals_lifecycle_code(
     assert issuer._canonical_authority_verified(pipeline) is True
 
 
-def test_product_canonical_runtime_rejects_direct_reflective_issuance() -> None:
-    pre_context = _context("collect_diagnostic_bundle")
-    forged_decision = _reconstruct_decision(_pipeline([]).evaluate(pre_context))
-    product_pipeline = _PRODUCT_CANONICAL_PRE_EXECUTION_PIPELINE
-    product_issuer = object.__getattribute__(product_pipeline, "_issuer")
-    runtime = (
-        policy_pipeline_module._PreExecutionAllowIssuer
-        ._issue_from_completed_evaluation.__kwdefaults__["_canonical_runtime"]
-    )
+def test_product_canonical_runtime_is_not_exposed_in_mutable_defaults() -> None:
+    for lifecycle_method in (
+        _PRODUCT_ISSUE_PRE_EXECUTION,
+        _PRODUCT_REGISTER_POST_EXECUTION,
+        _PRODUCT_RESTORE_POST_EXECUTION,
+        _PRODUCT_CONSUME_PRE_EXECUTION,
+    ):
+        assert lifecycle_method.__defaults__ is None
+        assert lifecycle_method.__kwdefaults__ is None
 
-    serial = runtime(
-        "issue_pre",
-        product_pipeline,
-        product_issuer,
-        forged_decision,
-        pre_context,
-        policy_pipeline_module._pre_execution_authorization_fingerprint(
-            forged_decision
+
+def test_product_canonical_lifecycle_preserves_runtime_frame_contract() -> None:
+    required_locals = (
+        (
+            _PRODUCT_ISSUE_PRE_EXECUTION,
+            {"self", "pipeline", "decision", "context", "fingerprint"},
+        ),
+        (
+            _PRODUCT_REGISTER_POST_EXECUTION,
+            {"self", "trusted_pipeline", "context", "captured"},
+        ),
+        (
+            _PRODUCT_RESTORE_POST_EXECUTION,
+            {"self", "trusted_pipeline", "serial", "context"},
+        ),
+        (
+            _PRODUCT_CONSUME_PRE_EXECUTION,
+            {
+                "self",
+                "trusted_pipeline",
+                "serial",
+                "decision",
+                "context",
+                "authorization_fingerprint",
+            },
         ),
     )
 
-    assert serial is None
+    for lifecycle_method, expected_names in required_locals:
+        assert expected_names <= set(lifecycle_method.__code__.co_varnames)
+
+
+def test_product_canonical_issuer_never_downgrades_to_test_ledger() -> None:
+    pipeline = _PRODUCT_CANONICAL_PRE_EXECUTION_PIPELINE
+    issuer = object.__getattribute__(pipeline, "_issuer")
+    issuer_type = policy_pipeline_module._PreExecutionAllowIssuer
+    original_stages = object.__getattribute__(pipeline, "_stages")
+    original_canonical_verifier = issuer_type._canonical_authority_verified
+    original_authority_verifier = issuer_type._authority_verified
+    replacement_stages = tuple(
+        _RecordingStage(name, []) for name in PRE_EXECUTION_POLICY_STAGE_ORDER
+    )
+
+    try:
+        issuer_type._canonical_authority_verified = lambda *_args: False
+        issuer_type._authority_verified = lambda *_args: True
+        object.__setattr__(pipeline, "_stages", replacement_stages)
+        decision = pipeline.evaluate(_context())
+    finally:
+        object.__setattr__(pipeline, "_stages", original_stages)
+        issuer_type._canonical_authority_verified = original_canonical_verifier
+        issuer_type._authority_verified = original_authority_verifier
+
+    assert decision.allowed is False
+    assert decision.reason_code == POLICY_PIPELINE_CONFIGURATION_INVALID
+    assert object.__getattribute__(decision, "_provenance") is None
+
+
+def test_product_canonical_captured_lifecycle_ignores_replaced_class_method() -> None:
+    pipeline = _PRODUCT_CANONICAL_PRE_EXECUTION_PIPELINE
+    issuer_type = policy_pipeline_module._PreExecutionAllowIssuer
+    original_issue_method = issuer_type._issue_from_completed_evaluation
+    original_stages = object.__getattribute__(pipeline, "_stages")
+    replacement_stages = tuple(
+        _RecordingStage(name, []) for name in PRE_EXECUTION_POLICY_STAGE_ORDER
+    )
+
+    def forged_issue(issuer: Any, *_args: Any, **_kwargs: Any) -> Any:
+        return policy_pipeline_module._PreExecutionAllowGrant(issuer, 1)
+
+    try:
+        issuer_type._issue_from_completed_evaluation = forged_issue
+        object.__setattr__(pipeline, "_stages", replacement_stages)
+        decision = pipeline.evaluate(_context())
+    finally:
+        object.__setattr__(pipeline, "_stages", original_stages)
+        issuer_type._issue_from_completed_evaluation = original_issue_method
+
+    assert decision.allowed is False
+    assert decision.reason_code == POLICY_PIPELINE_CONFIGURATION_INVALID
+    assert object.__getattribute__(decision, "_provenance") is None
+
+
+def test_product_canonical_dispatch_is_not_stored_in_writable_function_cells() -> None:
+    assert PolicyPipeline.evaluate.__closure__ is None
+    assert PostExecutionPolicyContext.__post_init__.__closure__ is None
+
+
+def test_product_canonical_lifecycle_is_closure_free() -> None:
+    pipeline = _PRODUCT_CANONICAL_PRE_EXECUTION_PIPELINE
+    issuer = object.__getattribute__(pipeline, "_issuer")
+    lifecycle_entries = {
+        entry[0]: entry[1]
+        for entry in frozenset.__iter__(issuer)
+        if type(entry) is tuple and len(entry) == 2 and entry[0] != "state"
+    }
+
+    assert set(lifecycle_entries) == {
+        "issue_pre",
+        "register_post",
+        "restore_post",
+        "consume_pre",
+    }
+    assert all(
+        seal[0] == "callable" and seal[1].__closure__ is None
+        for seal in lifecycle_entries.values()
+    )
+
+
+def test_product_canonical_lifecycle_rejects_sealed_code_replacement() -> None:
+    pipeline = _PRODUCT_CANONICAL_PRE_EXECUTION_PIPELINE
+    issuer = object.__getattribute__(pipeline, "_issuer")
+    issue_entry = next(
+        entry
+        for entry in frozenset.__iter__(issuer)
+        if type(entry) is tuple and len(entry) == 2 and entry[0] == "issue_pre"
+    )
+    issue_callable = issue_entry[1][1]
+    original_code = issue_callable.__code__
+    original_stages = object.__getattribute__(pipeline, "_stages")
+    replacement_stages = tuple(
+        _RecordingStage(name, []) for name in PRE_EXECUTION_POLICY_STAGE_ORDER
+    )
+
+    def forged_issue(
+        issuer: Any,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Any:
+        return policy_pipeline_module._PreExecutionAllowGrant(issuer, 1)
+
+    try:
+        issue_callable.__code__ = forged_issue.__code__
+        object.__setattr__(pipeline, "_stages", replacement_stages)
+        decision = pipeline.evaluate(_context())
+    finally:
+        object.__setattr__(pipeline, "_stages", original_stages)
+        issue_callable.__code__ = original_code
+
+    assert decision.allowed is False
+    assert decision.reason_code == POLICY_PIPELINE_CONFIGURATION_INVALID
+    assert object.__getattribute__(decision, "_provenance") is None
+
+
+def test_product_canonical_lifecycle_invocation_is_atomic_with_seal_validation() -> None:
+    pipeline = _PRODUCT_CANONICAL_PRE_EXECUTION_PIPELINE
+    issuer = object.__getattribute__(pipeline, "_issuer")
+    issue_entry = next(
+        entry
+        for entry in frozenset.__iter__(issuer)
+        if type(entry) is tuple and len(entry) == 2 and entry[0] == "issue_pre"
+    )
+    issue_callable = issue_entry[1][1]
+    unavailable_stage_type = type(object.__getattribute__(pipeline, "_stages")[0])
+    original_issue_code = issue_callable.__code__
+    original_stage_code = unavailable_stage_type.evaluate.__code__
+    mutation_observed = False
+
+    def allow_stage(self: Any, _context: Any) -> Any:
+        return PolicyStageResult(
+            stage=self.name,
+            allowed=True,
+            reason_code="POLICY_STAGE_ALLOWED",
+            message="forged allow",
+            evidence={},
+            stop_required=False,
+        )
+
+    def forged_issue(
+        issuer: Any,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Any:
+        return _PreExecutionAllowGrant(issuer, 1)
+
+    def mutate_after_validation(frame: Any, event: str, _arg: Any) -> Any:
+        nonlocal mutation_observed
+        if (
+            event == "line"
+            and frame.f_code is PolicyPipeline.evaluate.__code__
+            and (
+                issue_lifecycle := frame.f_locals.get("issue_lifecycle")
+            )
+            is not None
+            and issue_lifecycle[0] is issue_callable
+            and issue_lifecycle[1] is original_issue_code
+            and issue_callable.__code__ is original_issue_code
+        ):
+            issue_callable.__code__ = forged_issue.__code__
+            mutation_observed = True
+        return mutate_after_validation
+
+    try:
+        unavailable_stage_type.evaluate.__code__ = allow_stage.__code__
+        sys.settrace(mutate_after_validation)
+        decision = pipeline.evaluate(_context())
+    finally:
+        sys.settrace(None)
+        unavailable_stage_type.evaluate.__code__ = original_stage_code
+        issue_callable.__code__ = original_issue_code
+
+    assert mutation_observed is True
+    assert decision.allowed is False
+    assert decision.reason_code == POLICY_PIPELINE_CONFIGURATION_INVALID
+    assert object.__getattribute__(decision, "_provenance") is None
+
+
+def test_product_canonical_seal_iteration_ignores_replaced_frozenset_global() -> None:
+    pipeline = _PRODUCT_CANONICAL_PRE_EXECUTION_PIPELINE
+    unavailable_stage_type = type(object.__getattribute__(pipeline, "_stages")[0])
+    original_stage_code = unavailable_stage_type.evaluate.__code__
+    missing = object()
+    original_frozenset_global = policy_pipeline_module.__dict__.get(
+        "frozenset",
+        missing,
+    )
+    replacement_observed = False
+
+    def allow_stage(self: Any, _context: Any) -> Any:
+        return PolicyStageResult(
+            stage=self.name,
+            allowed=True,
+            reason_code="POLICY_STAGE_ALLOWED",
+            message="forged allow",
+            evidence={},
+            stop_required=False,
+        )
+
+    def forged_issue(
+        issuer: Any,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Any:
+        return _PreExecutionAllowGrant(issuer, 1)
+
+    forged_seal = (
+        "callable",
+        forged_issue,
+        forged_issue.__code__,
+        (),
+    )
+
+    class ForgedFrozenSet:
+        @staticmethod
+        def __iter__(_issuer: Any) -> Any:
+            return iter((("issue_pre", forged_seal),))
+
+    def replace_frozenset_after_evaluation(
+        frame: Any,
+        event: str,
+        _arg: Any,
+    ) -> Any:
+        nonlocal replacement_observed
+        if (
+                event == "line"
+                and frame.f_code is PolicyPipeline.evaluate.__code__
+                and getattr(frame.f_locals.get("decision"), "allowed", False) is True
+                and not replacement_observed
+            ):
+            policy_pipeline_module.frozenset = ForgedFrozenSet
+            replacement_observed = True
+        return replace_frozenset_after_evaluation
+
+    try:
+        unavailable_stage_type.evaluate.__code__ = allow_stage.__code__
+        sys.settrace(replace_frozenset_after_evaluation)
+        decision = pipeline.evaluate(_context())
+    finally:
+        sys.settrace(None)
+        unavailable_stage_type.evaluate.__code__ = original_stage_code
+        if original_frozenset_global is missing:
+            policy_pipeline_module.__dict__.pop("frozenset", None)
+        else:
+            policy_pipeline_module.frozenset = original_frozenset_global
+
+    assert replacement_observed is True
+    assert decision.allowed is False
+    assert decision.reason_code == POLICY_PIPELINE_CONFIGURATION_INVALID
+    assert object.__getattribute__(decision, "_provenance") is None
+
+
+def test_product_canonical_evaluation_exposes_no_mutable_lifecycle_parser() -> None:
+    pipeline = _PRODUCT_CANONICAL_PRE_EXECUTION_PIPELINE
+    unavailable_stage_type = type(object.__getattribute__(pipeline, "_stages")[0])
+    original_stage_code = unavailable_stage_type.evaluate.__code__
+    exposed_parser: Any = None
+    exposed_parser_code: Any = None
+
+    def allow_stage(self: Any, _context: Any) -> Any:
+        return PolicyStageResult(
+            stage=self.name,
+            allowed=True,
+            reason_code="POLICY_STAGE_ALLOWED",
+            message="forged allow",
+            evidence={},
+            stop_required=False,
+        )
+
+    def forged_parser(_issuer: Any, _name: str) -> Any:
+        def forged_issue(
+            issuer: Any,
+            *_args: Any,
+            **_kwargs: Any,
+        ) -> Any:
+            return _PreExecutionAllowGrant(issuer, 1)
+
+        return forged_issue, forged_issue.__code__
+
+    def replace_exposed_parser(frame: Any, event: str, _arg: Any) -> Any:
+        nonlocal exposed_parser
+        nonlocal exposed_parser_code
+        if event == "line" and frame.f_code is PolicyPipeline.evaluate.__code__:
+            candidate = frame.f_locals.get("captured_lifecycle")
+            if candidate is not None and exposed_parser is None:
+                exposed_parser = candidate
+                exposed_parser_code = candidate.__code__
+                candidate.__code__ = forged_parser.__code__
+        return replace_exposed_parser
+
+    try:
+        unavailable_stage_type.evaluate.__code__ = allow_stage.__code__
+        sys.settrace(replace_exposed_parser)
+        decision = pipeline.evaluate(_context())
+    finally:
+        sys.settrace(None)
+        unavailable_stage_type.evaluate.__code__ = original_stage_code
+        if exposed_parser is not None:
+            exposed_parser.__code__ = exposed_parser_code
+
+    assert exposed_parser is None
+    assert decision.allowed is False
+    assert decision.reason_code == POLICY_PIPELINE_CONFIGURATION_INVALID
+    assert object.__getattribute__(decision, "_provenance") is None
 
 
 def test_product_canonical_authority_ignores_mutable_issuer_record_ledgers() -> None:
@@ -1153,6 +1716,18 @@ def test_policy_stage_requirements_conservatively_preserves_session_identity() -
         {
             "type": "object",
             "properties": {"options": {"$recursiveRef": "#"}},
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {"mode": {"type": "string"}},
+            "dependencies": {
+                "mode": {
+                    "type": "object",
+                    "properties": {"output_path": {"type": "string"}},
+                    "additionalProperties": False,
+                }
+            },
             "additionalProperties": False,
         },
         {
@@ -2762,6 +3337,11 @@ def test_policy_decision_record_is_bounded_json_safe_and_redacts_sensitive_value
         "auth_sha256",
         "token_digest",
         "secret_digest",
+        "credential_sha256",
+        "api_key_digest",
+        "apikey_sha256",
+        "x-api-key_sha256",
+        "api.key_digest",
     ],
 )
 def test_policy_decision_record_redacts_digests_under_sensitive_keys(
@@ -2781,6 +3361,25 @@ def test_policy_decision_record_redacts_digests_under_sensitive_keys(
     serialized = json.dumps(decision.to_record(), sort_keys=True)
 
     assert sensitive_key not in serialized
+    assert credential_digest not in serialized
+    assert "<redacted>" in serialized
+
+
+def test_policy_decision_record_redacts_digest_under_nested_api_key_path() -> None:
+    credential_digest = "a1" * 32
+    decision = PolicyDecision(
+        capability_name="get_tool_catalog",
+        allowed=False,
+        stage="argument_schema",
+        reason_code="SENSITIVE_DIGEST_TEST_BLOCK",
+        message="nested sensitive digest redaction",
+        evidence={"api": {"key_digest": credential_digest}},
+        stop_required=True,
+    )
+
+    serialized = json.dumps(decision.to_record(), sort_keys=True)
+
+    assert "key_digest" not in serialized
     assert credential_digest not in serialized
     assert "<redacted>" in serialized
 
