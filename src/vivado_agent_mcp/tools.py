@@ -6,12 +6,19 @@ import os
 import re
 import uuid
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 from typing import Any, Callable
 
 from .result import failure, success
+from .policy_shadow import (
+    LegacyPreHandlerDecision,
+    PolicyShadowFacts,
+    evaluate_policy_shadow,
+    policy_shadow_failure_record,
+)
 from .registry import (
     EXISTING_PROJECT_EXECUTION_TOOLS,
     IMMEDIATE_PROJECT_MUTATION_TOOLS,
@@ -299,10 +306,28 @@ class VivadoToolService:
     def call(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         args = arguments if arguments is not None else {}
         started_at = datetime.now(UTC)
+        shadow_request_id = f"shadow-{uuid.uuid4().hex}"
+        shadow_facts = PolicyShadowFacts(
+            project_mutation_scope=self._project_mutation_scope,
+        )
         handler = self._handlers().get(name)
         if not handler:
             result = failure(name, "UNKNOWN_TOOL", f"Unknown tool: {name}")
-            trace_error = self._record_trace(name, args, result, started_at)
+            policy_shadow = self._evaluate_policy_shadow(
+                name=name,
+                args=args,
+                started_at=started_at,
+                request_id=shadow_request_id,
+                facts=shadow_facts,
+                legacy_decision=LegacyPreHandlerDecision.block("UNKNOWN_TOOL"),
+            )
+            trace_error = self._record_trace(
+                name,
+                args,
+                result,
+                started_at,
+                policy_shadow=policy_shadow,
+            )
             return _trace_write_failure(name, result, trace_error) if trace_error else result
         argument_issues = validate_tool_arguments(name, args)
         if argument_issues:
@@ -322,7 +347,23 @@ class VivadoToolService:
                     ],
                 },
             )
-            trace_error = self._record_trace(name, args if isinstance(args, dict) else {}, result, started_at)
+            policy_shadow = self._evaluate_policy_shadow(
+                name=name,
+                args=args,
+                started_at=started_at,
+                request_id=shadow_request_id,
+                facts=shadow_facts,
+                legacy_decision=LegacyPreHandlerDecision.block(
+                    "INVALID_TOOL_ARGUMENTS"
+                ),
+            )
+            trace_error = self._record_trace(
+                name,
+                args if isinstance(args, dict) else {},
+                result,
+                started_at,
+                policy_shadow=policy_shadow,
+            )
             return _trace_write_failure(name, result, trace_error) if trace_error else result
         if self.enforce_tool_profile and name not in self._profile_tool_names:
             result = failure(
@@ -341,7 +382,23 @@ class VivadoToolService:
                     ],
                 },
             )
-            trace_error = self._record_trace(name, args, result, started_at)
+            policy_shadow = self._evaluate_policy_shadow(
+                name=name,
+                args=args,
+                started_at=started_at,
+                request_id=shadow_request_id,
+                facts=shadow_facts,
+                legacy_decision=LegacyPreHandlerDecision.block(
+                    "TOOL_NOT_AVAILABLE_IN_PROFILE"
+                ),
+            )
+            trace_error = self._record_trace(
+                name,
+                args,
+                result,
+                started_at,
+                policy_shadow=policy_shadow,
+            )
             return _trace_write_failure(name, result, trace_error) if trace_error else result
         if "vivado_path" in args and "vivado_path" in input_schema_properties(name):
             path_assertion = validate_trusted_vivado_executable(
@@ -369,7 +426,23 @@ class VivadoToolService:
                         ],
                     },
                 )
-                trace_error = self._record_trace(name, args, result, started_at)
+                policy_shadow = self._evaluate_policy_shadow(
+                    name=name,
+                    args=args,
+                    started_at=started_at,
+                    request_id=shadow_request_id,
+                    facts=shadow_facts,
+                    legacy_decision=LegacyPreHandlerDecision.block(
+                        str(path_assertion.get("error_code") or "VIVADO_PATH_MISMATCH")
+                    ),
+                )
+                trace_error = self._record_trace(
+                    name,
+                    args,
+                    result,
+                    started_at,
+                    policy_shadow=policy_shadow,
+                )
                 return _trace_write_failure(name, result, trace_error) if trace_error else result
         guarded_project_action = name in (
             IMMEDIATE_PROJECT_MUTATION_TOOLS
@@ -377,6 +450,11 @@ class VivadoToolService:
             | UNATTESTED_COMPOSITE_EXECUTION_TOOLS
         ) and name != "create_project"
         repair_dry_run = name == "repair_project_setup" and bool(args.get("dry_run", True))
+        shadow_facts = replace(
+            shadow_facts,
+            guarded_project_action=guarded_project_action,
+            repair_dry_run=repair_dry_run,
+        )
         managed_transport = False
         project_guard = nullcontext()
         if guarded_project_action and not repair_dry_run:
@@ -384,6 +462,11 @@ class VivadoToolService:
                 managed_transport = isinstance(self._session(), GuiTcpVivadoSession)
             except Exception:  # noqa: BLE001 - the handler will return the canonical session error.
                 managed_transport = False
+            shadow_facts = replace(
+                shadow_facts,
+                managed_transport_observed=True,
+                managed_transport=managed_transport,
+            )
             if managed_transport and self._project_mutation_scope == "mcp_created_project":
                 try:
                     if not self._active_project_capability:
@@ -397,17 +480,46 @@ class VivadoToolService:
                     project_guard = self._session().require_current_project(
                         self._active_project_capability["project_path"]
                     )
+                    shadow_facts = replace(
+                        shadow_facts,
+                        project_capability_check="passed",
+                    )
                 except (ManagedPathError, OSError, ValueError) as exc:
                     self._project_mutation_scope = "indeterminate"
+                    shadow_facts = replace(
+                        shadow_facts,
+                        project_mutation_scope=self._project_mutation_scope,
+                        project_capability_check="failed",
+                    )
                     result = failure(
                         name,
                         "PROJECT_CAPABILITY_INVALID",
                         "The MCP-created project capability no longer identifies the original project object.",
                         data={"reason": str(exc), "mutation_scope": self._project_mutation_scope, "handler_executed": False},
                     )
-                    trace_error = self._record_trace(name, args, result, started_at)
+                    policy_shadow = self._evaluate_policy_shadow(
+                        name=name,
+                        args=args,
+                        started_at=started_at,
+                        request_id=shadow_request_id,
+                        facts=shadow_facts,
+                        legacy_decision=LegacyPreHandlerDecision.block(
+                            "PROJECT_CAPABILITY_INVALID"
+                        ),
+                    )
+                    trace_error = self._record_trace(
+                        name,
+                        args,
+                        result,
+                        started_at,
+                        policy_shadow=policy_shadow,
+                    )
                     return _trace_write_failure(name, result, trace_error) if trace_error else result
             if managed_transport and self._project_mutation_scope != "mcp_created_project":
+                shadow_facts = replace(
+                    shadow_facts,
+                    project_mutation_scope=self._project_mutation_scope,
+                )
                 result = failure(
                     name,
                     "EXISTING_PROJECT_MUTATION_REQUIRES_WORKING_COPY",
@@ -423,7 +535,23 @@ class VivadoToolService:
                         "next_actions": _existing_project_rebuild_actions(),
                     },
                 )
-                trace_error = self._record_trace(name, args, result, started_at)
+                policy_shadow = self._evaluate_policy_shadow(
+                    name=name,
+                    args=args,
+                    started_at=started_at,
+                    request_id=shadow_request_id,
+                    facts=shadow_facts,
+                    legacy_decision=LegacyPreHandlerDecision.block(
+                        "EXISTING_PROJECT_MUTATION_REQUIRES_WORKING_COPY"
+                    ),
+                )
+                trace_error = self._record_trace(
+                    name,
+                    args,
+                    result,
+                    started_at,
+                    policy_shadow=policy_shadow,
+                )
                 return _trace_write_failure(name, result, trace_error) if trace_error else result
             if managed_transport and name in UNATTESTED_COMPOSITE_EXECUTION_TOOLS:
                 result = failure(
@@ -450,8 +578,32 @@ class VivadoToolService:
                         ],
                     },
                 )
-                trace_error = self._record_trace(name, args, result, started_at)
+                policy_shadow = self._evaluate_policy_shadow(
+                    name=name,
+                    args=args,
+                    started_at=started_at,
+                    request_id=shadow_request_id,
+                    facts=shadow_facts,
+                    legacy_decision=LegacyPreHandlerDecision.block(
+                        "EXECUTABLE_COMPOSITE_INPUT_UNSUPPORTED"
+                    ),
+                )
+                trace_error = self._record_trace(
+                    name,
+                    args,
+                    result,
+                    started_at,
+                    policy_shadow=policy_shadow,
+                )
                 return _trace_write_failure(name, result, trace_error) if trace_error else result
+        policy_shadow = self._evaluate_policy_shadow(
+            name=name,
+            args=args,
+            started_at=started_at,
+            request_id=shadow_request_id,
+            facts=shadow_facts,
+            legacy_decision=LegacyPreHandlerDecision.allow(),
+        )
         try:
             with project_guard:
                 if managed_transport and name in EXISTING_PROJECT_EXECUTION_TOOLS:
@@ -504,12 +656,65 @@ class VivadoToolService:
                     "stop_required": True,
                 }
             )
-        trace_error = self._record_trace(name, args, result, started_at)
+        trace_error = self._record_trace(
+            name,
+            args,
+            result,
+            started_at,
+            policy_shadow=policy_shadow,
+        )
         return _trace_write_failure(name, result, trace_error) if trace_error else result
 
-    def _record_trace(self, name: str, args: dict[str, Any], result: dict[str, Any], started_at: datetime) -> str:
+    def _evaluate_policy_shadow(
+        self,
+        *,
+        name: str,
+        args: Any,
+        started_at: datetime,
+        request_id: str,
+        facts: PolicyShadowFacts,
+        legacy_decision: LegacyPreHandlerDecision,
+    ) -> dict[str, Any]:
         try:
-            self.tracer.record(tool=name, args=args, result=result, started_at=started_at, ended_at=datetime.now(UTC))
+            return evaluate_policy_shadow(
+                capability_name=name,
+                arguments=args,
+                active_profile=self.tool_profile,
+                profile_enforced=self.enforce_tool_profile,
+                trusted_vivado_identity=self._trusted_vivado_identity,
+                project_capability=self._active_project_capability,
+                facts=facts,
+                legacy_decision=legacy_decision,
+                request_id=request_id,
+                started_at=started_at,
+            )
+        except Exception as exc:  # noqa: BLE001 - shadow failures never replace legacy authority.
+            return policy_shadow_failure_record(
+                capability_name=name,
+                legacy_decision=legacy_decision,
+                request_id=request_id,
+                started_at=started_at,
+                exception_type=exc.__class__.__name__,
+            )
+
+    def _record_trace(
+        self,
+        name: str,
+        args: dict[str, Any],
+        result: dict[str, Any],
+        started_at: datetime,
+        *,
+        policy_shadow: dict[str, Any] | None = None,
+    ) -> str:
+        try:
+            self.tracer.record(
+                tool=name,
+                args=args,
+                result=result,
+                started_at=started_at,
+                ended_at=datetime.now(UTC),
+                policy_shadow=policy_shadow,
+            )
         except Exception as exc:  # noqa: BLE001 - trace failure is converted to a structured MCP result.
             return f"{exc.__class__.__name__}: {exc}"
         return ""
