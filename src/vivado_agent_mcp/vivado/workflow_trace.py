@@ -78,6 +78,7 @@ class WorkflowTracer:
         result: dict[str, Any],
         started_at: datetime,
         ended_at: datetime,
+        policy_shadow: dict[str, Any] | None = None,
     ) -> None:
         project_dir = infer_project_dir(result)
         if project_dir is not None:
@@ -98,6 +99,8 @@ class WorkflowTracer:
                 args=args,
             ),
         }
+        if policy_shadow is not None:
+            entry["policy_shadow"] = policy_shadow
         if result.get("ok") is False:
             entry["failure_id"] = f"{self.trace_id}:{self.sequence}"
         resolution_path = self.project_trace_path or self.trace_path
