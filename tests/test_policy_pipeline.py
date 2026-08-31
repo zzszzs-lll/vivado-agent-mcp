@@ -1939,6 +1939,53 @@ def test_policy_stage_requirements_leave_bounded_nested_non_path_schema_local() 
 
 
 @pytest.mark.parametrize(
+    "argument_name",
+    [
+        "path",
+        "paths",
+        "directory",
+        "directories",
+        "dir",
+        "dirs",
+        "file",
+        "files",
+        "folder",
+        "folders",
+        "workspace_root",
+    ],
+)
+def test_policy_stage_requirements_recognize_generic_path_argument_names(
+    argument_name: str,
+) -> None:
+    capability = replace(
+        TOOL_REGISTRY["get_tool_catalog"],
+        input_schema={
+            "type": "object",
+            "properties": {argument_name: {"type": "string"}},
+            "additionalProperties": False,
+        },
+    )
+
+    assert policy_stage_requirements(capability)["managed_path_boundary"] is True
+
+
+@pytest.mark.parametrize("argument_name", ["root", "pathology", "directory_mode"])
+def test_policy_stage_requirements_do_not_match_generic_path_substrings(
+    argument_name: str,
+) -> None:
+    capability = replace(
+        TOOL_REGISTRY["get_tool_catalog"],
+        input_schema={
+            "type": "object",
+            "properties": {argument_name: {"type": "string"}},
+            "additionalProperties": False,
+        },
+    )
+
+    assert policy_stage_requirements(capability)["managed_path_boundary"] is False
+
+
+@pytest.mark.parametrize(
     "keyword",
     ["if", "then", "else", "not", "propertyNames"],
 )

@@ -43,6 +43,9 @@ ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES = {
     "subprocess_shell",
 }
 DYNAMIC_ATTRIBUTE_CALLABLE_KIND = "dynamic_attribute_callable"
+NON_EXECUTION_PROVENANCE_MODULE_KINDS = frozenset(
+    {"multiprocessing_process", "multiprocessing_process_mixed"}
+)
 PTY_PROCESS_CALL_NAMES = {"fork", "spawn"}
 PLATFORM_PROCESS_MODULES = frozenset({"os", "posix", "nt"})
 VALUE_FLOW_METHOD_NAMES = {
@@ -53,9 +56,18 @@ VALUE_FLOW_METHOD_NAMES = {
     "items",
     "keys",
     "pop",
+    "popleft",
     "popitem",
     "setdefault",
     "values",
+}
+VALUE_FLOW_CONSTRUCTOR_NAMES = {
+    "collections.deque",
+    "deque",
+    "dict",
+    "list",
+    "set",
+    "tuple",
 }
 DEFAULT_VARS_REFERENCES = frozenset(
     {"vars", "builtins.vars", "__builtins__.vars"}
@@ -79,6 +91,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
         callable_shadow_stack: list[set[str]] = [set()]
         module_alias_stack: list[dict[str, str]] = [{}]
         module_shadow_stack: list[set[str]] = [set()]
+        multiprocessing_container_mutation_alias_stack: list[
+            dict[str, tuple[str, str]]
+        ] = [{}]
+        multiprocessing_container_mutation_shadow_stack: list[set[str]] = [set()]
         builtin_name_shadow_stack: list[set[str]] = [set()]
         builtin_getattr_alias_stack: list[set[str]] = [set()]
         builtin_getattr_shadow_stack: list[set[str]] = [set()]
@@ -123,6 +139,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             "asyncio": {"asyncio", "asyncio.subprocess"},
             "asyncio_runner": set(),
             "asyncio_task": set(),
+            "multiprocessing": {"multiprocessing"},
+            "multiprocessing_context": set(),
+            "multiprocessing_context_factory": set(),
+            "multiprocessing_manager_factory": set(),
+            "multiprocessing_pool_factory": set(),
+            "multiprocessing_process": set(),
+            "multiprocessing_process_mixed": set(),
+            "multiprocessing_process_factory": set(),
             "pty": {"pty"},
             "posix": {"posix"},
             "nt": {"nt"},
@@ -169,6 +193,37 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         vars_aliases.add(alias.asname or alias.name)
                     if node.module == "sys" and alias.name == "modules":
                         module_registry_aliases.add(alias.asname or alias.name)
+                    if node.level == 0 and node.module in {
+                        "multiprocessing",
+                        "multiprocessing.managers",
+                        "multiprocessing.pool",
+                    }:
+                        if alias.name == "Process":
+                            module_aliases[
+                                "multiprocessing_process_factory"
+                            ].add(alias.asname or alias.name)
+                        elif alias.name == "get_context":
+                            module_aliases[
+                                "multiprocessing_context_factory"
+                            ].add(alias.asname or alias.name)
+                        elif alias.name == "Pool":
+                            module_aliases[
+                                "multiprocessing_pool_factory"
+                            ].add(alias.asname or alias.name)
+                        elif (
+                            node.module == "multiprocessing"
+                            and alias.name == "Manager"
+                        ):
+                            module_aliases[
+                                "multiprocessing_manager_factory"
+                            ].add(alias.asname or alias.name)
+                        elif (
+                            node.module == "multiprocessing.managers"
+                            and alias.name in {"BaseManager", "SyncManager"}
+                        ):
+                            module_aliases[
+                                "multiprocessing_process_factory"
+                            ].add(alias.asname or alias.name)
                     if (
                         node.module == "operator"
                         and alias.name
@@ -363,6 +418,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
         event_loop_receiver_parameter_names: dict[
             str,
             dict[str, set[str]],
+        ] = {}
+        multiprocessing_process_receiver_parameter_positions: dict[
+            str,
+            set[int],
+        ] = {}
+        multiprocessing_process_receiver_parameter_names: dict[
+            str,
+            set[str],
         ] = {}
         helper_parameter_positions: dict[str, dict[str, int]] = {}
         helper_call_argument_sources: dict[
@@ -1291,6 +1354,93 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             environment[target_reference] = set(sources)
                 return environment
 
+            def statement_bound_names(statement: ast.AST) -> set[str]:
+                if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    return {statement.name}
+                if isinstance(statement, ast.Assign):
+                    return set().union(
+                        *(bound_identifiers(target) for target in statement.targets)
+                    )
+                if isinstance(statement, ast.AnnAssign):
+                    return bound_identifiers(statement.target)
+                if isinstance(statement, ast.Import):
+                    return {
+                        alias.asname or alias.name.split(".", maxsplit=1)[0]
+                        for alias in statement.names
+                    }
+                if isinstance(statement, ast.ImportFrom):
+                    return {
+                        alias.asname or alias.name
+                        for alias in statement.names
+                        if alias.name != "*"
+                    }
+                return set()
+
+            def builtin_getattr_available_before(point: ast.AST) -> bool:
+                if "getattr" in parameter_names:
+                    return False
+                point_line = getattr(point, "lineno", -1)
+                for statements in (tree.body, definition_body):
+                    for statement in statements:
+                        if getattr(statement, "lineno", -1) >= point_line:
+                            break
+                        if "getattr" in statement_bound_names(statement):
+                            return False
+                return True
+
+            def static_start_receiver(
+                value: ast.AST | None,
+                *,
+                point: ast.AST,
+            ) -> ast.AST | None:
+                if isinstance(value, ast.Attribute):
+                    receiver, attribute = value.value, value.attr
+                else:
+                    receiver, attribute = _static_attribute_lookup(
+                        value,
+                        builtin_getattr_available=builtin_getattr_available_before(
+                            point
+                        ),
+                        builtin_getattr_owners=builtins_aliases,
+                        vars_references=vars_aliases,
+                    )
+                return receiver if attribute == "start" else None
+
+            def start_receiver_aliases_before(
+                point: ast.AST,
+            ) -> dict[str, set[str]]:
+                aliases: dict[str, set[str]] = {}
+                for statement in definition_body:
+                    if getattr(statement, "lineno", -1) >= getattr(
+                        point,
+                        "lineno",
+                        -1,
+                    ):
+                        break
+                    targets: list[ast.AST] = []
+                    value: ast.AST | None = None
+                    if isinstance(statement, ast.Assign):
+                        targets = list(statement.targets)
+                        value = statement.value
+                    elif isinstance(statement, ast.AnnAssign):
+                        targets = [statement.target]
+                        value = statement.value
+                    if value is None:
+                        continue
+                    receiver = static_start_receiver(value, point=statement)
+                    if receiver is not None:
+                        sources = referenced_parameters(
+                            receiver,
+                            unconditional_sources_before(statement),
+                        )
+                    else:
+                        sources = aliases.get(_dotted_name(value) or "", set())
+                    for target in targets:
+                        target_reference = _dotted_name(target)
+                        if target_reference is not None:
+                            aliases[target_reference] = set(sources)
+                return aliases
+
             for nested in (
                 candidate
                 for statement in definition_body
@@ -1344,6 +1494,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             invoked_parameters: set[str] = set()
             invoked_projected_keywords: set[str] = set()
             event_loop_receiver_parameters: dict[str, set[str]] = {}
+            multiprocessing_process_receiver_parameters: set[str] = set()
             for candidate in body_nodes:
                 if not isinstance(candidate, ast.Call):
                     continue
@@ -1399,6 +1550,24 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             parameter_name,
                             set(),
                         ).add(f"asyncio.{candidate.func.attr}")
+                process_start_receiver = static_start_receiver(
+                    candidate.func,
+                    point=candidate,
+                )
+                if process_start_receiver is not None:
+                    multiprocessing_process_receiver_parameters.update(
+                        referenced_parameters(
+                            process_start_receiver,
+                            sources_at_call,
+                        )
+                    )
+                else:
+                    multiprocessing_process_receiver_parameters.update(
+                        start_receiver_aliases_before(candidate).get(
+                            _dotted_name(candidate.func) or "",
+                            set(),
+                        )
+                    )
                 if current_operator_call_reference(candidate.func) and candidate.args:
                     invoked_parameters.update(
                         referenced_parameters(
@@ -1534,6 +1703,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 not invoked_parameters
                 and not invoked_projected_keywords
                 and not event_loop_receiver_parameters
+                and not multiprocessing_process_receiver_parameters
                 and not returned_parameters
             ):
                 continue
@@ -1559,6 +1729,17 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 event_loop_receiver_parameter_positions[contract_reference] = {
                     parameter_positions[name]: set(kinds)
                     for name, kinds in event_loop_receiver_parameters.items()
+                    if name in parameter_positions
+                }
+            if multiprocessing_process_receiver_parameters:
+                multiprocessing_process_receiver_parameter_names[
+                    contract_reference
+                ] = set(multiprocessing_process_receiver_parameters)
+                multiprocessing_process_receiver_parameter_positions[
+                    contract_reference
+                ] = {
+                    parameter_positions[name]
+                    for name in multiprocessing_process_receiver_parameters
                     if name in parameter_positions
                 }
             if returned_parameters:
@@ -1677,6 +1858,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     values.append(candidate.value)
             return tuple(values)
 
+        helper_return_values = {
+            contract_reference: local_return_values(definition)
+            for definition, contract_reference in helper_definitions
+        }
+
         for definition, contract_reference in helper_definitions:
             if isinstance(definition, ast.Lambda):
                 continue
@@ -1705,7 +1891,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 if name is not None
             ):
                 event_loop_property_return_values[contract_reference] = (
-                    local_return_values(definition)
+                    helper_return_values[contract_reference]
                 )
 
         changed = True
@@ -2183,11 +2369,89 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         if name in caller_positions
                     }
 
+        changed = True
+        while changed:
+            changed = False
+            for caller_contract, calls in helper_call_argument_sources.items():
+                caller_names = (
+                    multiprocessing_process_receiver_parameter_names.setdefault(
+                        caller_contract,
+                        set(),
+                    )
+                )
+                for (
+                    call,
+                    positional_sources,
+                    keyword_sources,
+                    starred_sources,
+                    unpacked_keyword_sources,
+                ) in calls:
+                    for callee_contract in callback_contract_references(
+                        call.func,
+                        context=call,
+                    ):
+                        consumes_receiver = callback_contract_consumes_receiver(
+                            call.func,
+                            callee_contract,
+                        )
+                        for position in (
+                            multiprocessing_process_receiver_parameter_positions.get(
+                                callee_contract,
+                                set(),
+                            )
+                        ):
+                            argument_position = (
+                                position - 1
+                                if consumes_receiver and position > 0
+                                else position
+                            )
+                            sources = set(starred_sources)
+                            if argument_position < len(positional_sources):
+                                sources.update(
+                                    positional_sources[argument_position]
+                                )
+                            new_names = sources - caller_names
+                            if new_names:
+                                caller_names.update(new_names)
+                                changed = True
+                        for parameter_name in (
+                            multiprocessing_process_receiver_parameter_names.get(
+                                callee_contract,
+                                set(),
+                            )
+                        ):
+                            sources = set(unpacked_keyword_sources)
+                            sources.update(
+                                keyword_sources.get(parameter_name, set())
+                            )
+                            new_names = sources - caller_names
+                            if new_names:
+                                caller_names.update(new_names)
+                                changed = True
+                caller_positions = helper_parameter_positions.get(
+                    caller_contract,
+                    {},
+                )
+                if caller_names:
+                    multiprocessing_process_receiver_parameter_positions[
+                        caller_contract
+                    ] = {
+                        caller_positions[name]
+                        for name in caller_names
+                        if name in caller_positions
+                    }
+
         class Visitor(ast.NodeVisitor):
             def __init__(self) -> None:
                 self._annotation_call_only_depth = 0
                 self._conditional_depth = 0
                 self._event_loop_property_evaluation_stack: set[str] = set()
+                self._multiprocessing_context_return_evaluation_stack: set[str] = set()
+                self._multiprocessing_launch_factory_evaluation_stack: set[str] = set()
+                self._multiprocessing_process_callable_evaluation_stack: set[
+                    str
+                ] = set()
+                self._multiprocessing_return_evaluation_stack: set[str] = set()
                 self._literal_code_depth = 0
 
             @staticmethod
@@ -2255,6 +2519,77 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     }
                     for module in combined
                 }
+
+            def _multiprocessing_container_mutation_aliases(
+                self,
+            ) -> dict[str, tuple[str, str]]:
+                visible: dict[str, tuple[str, str]] = {}
+                for index, (scope, shadowed) in enumerate(
+                    zip(
+                        multiprocessing_container_mutation_alias_stack,
+                        multiprocessing_container_mutation_shadow_stack,
+                        strict=True,
+                    )
+                ):
+                    if not self._bare_name_scope_is_visible(
+                        index,
+                        len(multiprocessing_container_mutation_alias_stack),
+                    ):
+                        continue
+                    for name in shadowed:
+                        for reference in tuple(visible):
+                            if reference == name or reference.startswith(f"{name}."):
+                                visible.pop(reference, None)
+                    visible.update(scope)
+                return visible
+
+            def _multiprocessing_container_mutation_reference(
+                self,
+                node: ast.AST | None,
+            ) -> tuple[str, str] | None:
+                if isinstance(node, ast.Attribute):
+                    receiver, method = node.value, node.attr
+                else:
+                    receiver, method = _static_attribute_lookup(
+                        node,
+                        builtin_getattr_available=(
+                            self._builtin_receiver_available("getattr")
+                        ),
+                        builtin_object_available=(
+                            self._builtin_receiver_available("object")
+                        ),
+                        builtin_getattr_owners=self._builtins_aliases(),
+                        builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                        vars_references=self._vars_aliases(),
+                    )
+                if method in {
+                    "__setitem__",
+                    "add",
+                    "append",
+                    "appendleft",
+                    "extend",
+                    "insert",
+                    "setdefault",
+                    "update",
+                }:
+                    receiver_reference = _dotted_name(receiver)
+                    if receiver_reference is not None:
+                        return receiver_reference, method
+                reference = _dotted_name(node)
+                return self._multiprocessing_container_mutation_aliases().get(
+                    reference or ""
+                )
+
+            @staticmethod
+            def _bind_multiprocessing_container_mutation_alias(
+                target: ast.AST,
+                mutation_alias: tuple[str, str] | None,
+            ) -> None:
+                target_reference = _dotted_name(target)
+                if target_reference is not None and mutation_alias is not None:
+                    multiprocessing_container_mutation_alias_stack[-1][
+                        target_reference
+                    ] = mutation_alias
 
             def _visible_lexical_aliases(
                 self,
@@ -2505,6 +2840,53 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     and reference in self._functools_partial_aliases()
                 )
 
+            def _value_container_constructor_reference(
+                self,
+                node: ast.AST | None,
+            ) -> bool:
+                reference = _dotted_name(node)
+                if reference not in VALUE_FLOW_CONSTRUCTOR_NAMES:
+                    return False
+                return (
+                    reference not in {"dict", "list", "set", "tuple"}
+                    or self._builtin_receiver_available(reference)
+                )
+
+            def _builtin_reference(
+                self,
+                node: ast.AST | None,
+                names: set[str] | frozenset[str],
+            ) -> bool:
+                return (
+                    isinstance(node, ast.Name)
+                    and node.id in names
+                    and self._builtin_receiver_available(node.id)
+                ) or (
+                    isinstance(node, ast.Attribute)
+                    and node.attr in names
+                    and _dotted_name(node.value) in self._builtins_aliases()
+                )
+
+            def _builtin_map_reference(self, node: ast.AST | None) -> bool:
+                return self._builtin_reference(node, {"map"})
+
+            def _iterable_adapter_process_sources(
+                self,
+                node: ast.AST | None,
+            ) -> tuple[ast.AST, ...]:
+                if not isinstance(node, ast.Call):
+                    return ()
+                if self._builtin_reference(
+                    node.func,
+                    {"enumerate", "reversed", "sorted"},
+                ):
+                    return tuple(node.args[:1])
+                if self._builtin_reference(node.func, {"zip"}):
+                    return tuple(node.args)
+                if self._builtin_reference(node.func, {"filter"}):
+                    return tuple(node.args[1:2])
+                return ()
+
             def _operator_process_transform_kind(
                 self,
                 node: ast.Call,
@@ -2569,6 +2951,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 attribute = _static_string_value(transform.args[0])
                 if attribute == "run_tcl":
                     return "run_tcl"
+                if (
+                    attribute == "start"
+                    and transform_kind in {"attrgetter", "methodcaller"}
+                    and self._returned_multiprocessing_process_receiver(
+                        node.args[0]
+                    )
+                ):
+                    return "multiprocessing.Process.start"
                 if (
                     attribute in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
                     and _event_loop_receiver(
@@ -2954,6 +3344,21 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     callable_aliases,
                 ):
                     return "asyncio_task"
+                if self._observed_multiprocessing_context_factory_receiver(node):
+                    return "multiprocessing_context_factory"
+                if self._returned_multiprocessing_context_receiver(node):
+                    return "multiprocessing_context"
+                multiprocessing_launch_kind = (
+                    self._observed_multiprocessing_launch_factory_kind(node)
+                )
+                if multiprocessing_launch_kind == "multiprocessing.Pool":
+                    return "multiprocessing_pool_factory"
+                if multiprocessing_launch_kind == "multiprocessing.Manager":
+                    return "multiprocessing_manager_factory"
+                if self._observed_multiprocessing_process_factory_receiver(node):
+                    return "multiprocessing_process_factory"
+                if self._returned_multiprocessing_process_receiver(node):
+                    return "multiprocessing_process"
                 return (
                     "asyncio"
                     if _event_loop_receiver(
@@ -3029,6 +3434,21 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             ) -> str | None:
                 observed = self._registered_process_callable_kind(
                     node
+                ) or self._returned_multiprocessing_process_start_reference_kind(
+                    node
+                ) or _multiprocessing_process_start_reference_kind(
+                    node,
+                    module_aliases,
+                    callable_aliases,
+                    builtin_getattr_available=self._builtin_receiver_available(
+                        "getattr"
+                    ),
+                    builtin_object_available=self._builtin_receiver_available(
+                        "object"
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                    vars_references=self._vars_aliases(),
                 ) or _callable_reference_kind(
                     node,
                     module_aliases,
@@ -3167,6 +3587,555 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 return isinstance(node, ast.Call) and any(
                     self._returned_event_loop_receiver(candidate)
                     for candidate in self._returned_contract_arguments(node)
+                )
+
+            def _observed_multiprocessing_context_factory_receiver(
+                self,
+                node: ast.AST | None,
+            ) -> bool:
+                if _multiprocessing_context_factory_receiver(
+                    node,
+                    self._module_aliases(),
+                    self._callable_aliases(),
+                    builtin_getattr_available=(
+                        self._builtin_receiver_available("getattr")
+                    ),
+                    builtin_object_available=(
+                        self._builtin_receiver_available("object")
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                    vars_references=self._vars_aliases(),
+                ):
+                    return True
+                return (
+                    isinstance(node, ast.Call)
+                    and self._functools_partial_reference(node.func)
+                    and bool(node.args)
+                    and self._observed_multiprocessing_context_factory_receiver(
+                        node.args[0]
+                    )
+                )
+
+            def _returned_multiprocessing_context_receiver(
+                self,
+                node: ast.AST | None,
+            ) -> bool:
+                if (
+                    isinstance(node, ast.Call)
+                    and self._observed_multiprocessing_context_factory_receiver(
+                        node.func
+                    )
+                ):
+                    return True
+                if _multiprocessing_context_receiver(
+                    node,
+                    self._module_aliases(),
+                    self._callable_aliases(),
+                    builtin_getattr_available=(
+                        self._builtin_receiver_available("getattr")
+                    ),
+                    builtin_object_available=(
+                        self._builtin_receiver_available("object")
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                    vars_references=self._vars_aliases(),
+                ):
+                    return True
+                if isinstance(node, ast.NamedExpr):
+                    return self._returned_multiprocessing_context_receiver(node.value)
+                if isinstance(node, ast.IfExp):
+                    return self._returned_multiprocessing_context_receiver(
+                        node.body
+                    ) or self._returned_multiprocessing_context_receiver(node.orelse)
+                if isinstance(node, ast.BoolOp):
+                    return any(
+                        self._returned_multiprocessing_context_receiver(candidate)
+                        for candidate in node.values
+                    )
+                if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                    return any(
+                        self._returned_multiprocessing_context_receiver(candidate)
+                        for candidate in node.elts
+                    )
+                if isinstance(node, ast.Dict):
+                    return any(
+                        self._returned_multiprocessing_context_receiver(candidate)
+                        for candidate in (*node.keys, *node.values)
+                        if candidate is not None
+                    )
+                if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+                    return self._returned_multiprocessing_context_receiver(node.elt)
+                if isinstance(node, ast.DictComp):
+                    return self._returned_multiprocessing_context_receiver(
+                        node.key
+                    ) or self._returned_multiprocessing_context_receiver(node.value)
+                if isinstance(node, (ast.Await, ast.Yield, ast.YieldFrom)):
+                    return self._returned_multiprocessing_context_receiver(node.value)
+                if isinstance(node, ast.Subscript):
+                    return self._returned_multiprocessing_context_receiver(node.value)
+                if not isinstance(node, ast.Call):
+                    return False
+                for contract in returned_contract_references(
+                    node.func,
+                    context=node,
+                ):
+                    if contract in self._multiprocessing_context_return_evaluation_stack:
+                        continue
+                    self._multiprocessing_context_return_evaluation_stack.add(contract)
+                    try:
+                        if any(
+                            self._returned_multiprocessing_context_receiver(value)
+                            for value in helper_return_values.get(contract, ())
+                        ):
+                            return True
+                    finally:
+                        self._multiprocessing_context_return_evaluation_stack.remove(
+                            contract
+                        )
+                if node.args and not node.keywords:
+                    builtin_name: str | None = None
+                    if isinstance(node.func, ast.Name) and (
+                        node.func.id in {"iter", "next"}
+                        and self._builtin_receiver_available(node.func.id)
+                    ):
+                        builtin_name = node.func.id
+                    elif (
+                        isinstance(node.func, ast.Attribute)
+                        and node.func.attr in {"iter", "next"}
+                        and _dotted_name(node.func.value) in self._builtins_aliases()
+                    ):
+                        builtin_name = node.func.attr
+                    if (
+                        builtin_name == "next"
+                        or (builtin_name == "iter" and len(node.args) == 1)
+                    ):
+                        return self._returned_multiprocessing_context_receiver(
+                            node.args[0]
+                        )
+                return any(
+                    self._returned_multiprocessing_context_receiver(candidate)
+                    for candidate in self._returned_contract_arguments(node)
+                )
+
+            def _observed_multiprocessing_launch_factory_kind(
+                self,
+                node: ast.AST | None,
+            ) -> str | None:
+                if isinstance(node, ast.NamedExpr):
+                    return self._observed_multiprocessing_launch_factory_kind(
+                        node.value
+                    )
+                if isinstance(node, ast.IfExp):
+                    return self._observed_multiprocessing_launch_factory_kind(
+                        node.body
+                    ) or self._observed_multiprocessing_launch_factory_kind(
+                        node.orelse
+                    )
+                if isinstance(node, ast.BoolOp):
+                    return next(
+                        (
+                            kind
+                            for candidate in node.values
+                            if (
+                                kind := self._observed_multiprocessing_launch_factory_kind(
+                                    candidate
+                                )
+                            )
+                        ),
+                        None,
+                    )
+                if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                    return next(
+                        (
+                            kind
+                            for candidate in node.elts
+                            if (
+                                kind := self._observed_multiprocessing_launch_factory_kind(
+                                    candidate
+                                )
+                            )
+                        ),
+                        None,
+                    )
+                if isinstance(node, ast.Dict):
+                    return next(
+                        (
+                            kind
+                            for candidate in (*node.keys, *node.values)
+                            if candidate is not None
+                            and (
+                                kind := self._observed_multiprocessing_launch_factory_kind(
+                                    candidate
+                                )
+                            )
+                        ),
+                        None,
+                    )
+                if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+                    return self._observed_multiprocessing_launch_factory_kind(
+                        node.elt
+                    )
+                if isinstance(node, ast.DictComp):
+                    return self._observed_multiprocessing_launch_factory_kind(
+                        node.key
+                    ) or self._observed_multiprocessing_launch_factory_kind(
+                        node.value
+                    )
+                if isinstance(node, (ast.Await, ast.Yield, ast.YieldFrom)):
+                    return self._observed_multiprocessing_launch_factory_kind(
+                        node.value
+                    )
+                if isinstance(node, ast.Subscript):
+                    return self._observed_multiprocessing_launch_factory_kind(
+                        node.value
+                    )
+                module_kind = _module_reference_kind(node, self._module_aliases())
+                if module_kind == "multiprocessing_pool_factory":
+                    return "multiprocessing.Pool"
+                if module_kind == "multiprocessing_manager_factory":
+                    return "multiprocessing.Manager"
+                if (
+                    isinstance(node, ast.Call)
+                    and self._functools_partial_reference(node.func)
+                    and node.args
+                ):
+                    return self._observed_multiprocessing_launch_factory_kind(
+                        node.args[0]
+                    )
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in VALUE_FLOW_METHOD_NAMES
+                ):
+                    return self._observed_multiprocessing_launch_factory_kind(
+                        node.func.value
+                    )
+                if isinstance(node, ast.Call):
+                    for contract in returned_contract_references(
+                        node.func,
+                        context=node,
+                    ):
+                        if (
+                            contract
+                            in self._multiprocessing_launch_factory_evaluation_stack
+                        ):
+                            continue
+                        self._multiprocessing_launch_factory_evaluation_stack.add(
+                            contract
+                        )
+                        try:
+                            for value in helper_return_values.get(contract, ()):
+                                kind = (
+                                    self._observed_multiprocessing_launch_factory_kind(
+                                        value
+                                    )
+                                )
+                                if kind is not None:
+                                    return kind
+                        finally:
+                            self._multiprocessing_launch_factory_evaluation_stack.remove(
+                                contract
+                            )
+                    for candidate in self._returned_contract_arguments(node):
+                        kind = self._observed_multiprocessing_launch_factory_kind(
+                            candidate
+                        )
+                        if kind is not None:
+                            return kind
+                if isinstance(node, ast.Attribute):
+                    receiver, attribute = node.value, node.attr
+                else:
+                    receiver, attribute = _static_attribute_lookup(
+                        node,
+                        builtin_getattr_available=(
+                            self._builtin_receiver_available("getattr")
+                        ),
+                        builtin_object_available=(
+                            self._builtin_receiver_available("object")
+                        ),
+                        builtin_getattr_owners=self._builtins_aliases(),
+                        builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                        vars_references=self._vars_aliases(),
+                    )
+                if attribute not in {"Manager", "Pool"}:
+                    return None
+                if (
+                    _module_reference_kind(receiver, self._module_aliases())
+                    != "multiprocessing"
+                    and not self._returned_multiprocessing_context_receiver(receiver)
+                ):
+                    return None
+                return f"multiprocessing.{attribute}"
+
+            def _multiprocessing_launch_call_kind(
+                self,
+                node: ast.Call,
+            ) -> str | None:
+                return self._observed_multiprocessing_launch_factory_kind(
+                    node.func
+                )
+
+            def _observed_multiprocessing_process_factory_receiver(
+                self,
+                node: ast.AST | None,
+            ) -> bool:
+                if _multiprocessing_process_factory_receiver(
+                    node,
+                    self._module_aliases(),
+                    self._callable_aliases(),
+                    builtin_getattr_available=(
+                        self._builtin_receiver_available("getattr")
+                    ),
+                    builtin_object_available=(
+                        self._builtin_receiver_available("object")
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                    vars_references=self._vars_aliases(),
+                ):
+                    return True
+                if (
+                    isinstance(node, ast.Call)
+                    and self._value_container_constructor_reference(node.func)
+                    and any(
+                        self._observed_multiprocessing_process_factory_receiver(
+                            candidate
+                        )
+                        for candidate in (
+                            *node.args,
+                            *(keyword.value for keyword in node.keywords),
+                        )
+                    )
+                ):
+                    return True
+                if (
+                    isinstance(node, ast.Call)
+                    and self._functools_partial_reference(node.func)
+                    and node.args
+                ):
+                    return self._observed_multiprocessing_process_factory_receiver(
+                        node.args[0]
+                    )
+                if isinstance(node, ast.Attribute):
+                    receiver, attribute = node.value, node.attr
+                else:
+                    receiver, attribute = _static_attribute_lookup(
+                        node,
+                        builtin_getattr_available=(
+                            self._builtin_receiver_available("getattr")
+                        ),
+                        builtin_object_available=(
+                            self._builtin_receiver_available("object")
+                        ),
+                        builtin_getattr_owners=self._builtins_aliases(),
+                        builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                        vars_references=self._vars_aliases(),
+                    )
+                return (
+                    attribute == "Process"
+                    and self._returned_multiprocessing_context_receiver(receiver)
+                )
+
+            def _multiprocessing_process_returning_callable(
+                self,
+                node: ast.AST | None,
+            ) -> bool:
+                if self._observed_multiprocessing_process_factory_receiver(node):
+                    return True
+                if isinstance(node, ast.Lambda):
+                    bindings = self._parameter_default_bindings(node.args)
+                    self._push_function_scope(node.args, bindings)
+                    try:
+                        return self._returned_multiprocessing_process_receiver(
+                            node.body
+                        )
+                    finally:
+                        self._pop_alias_scope()
+                for contract in returned_contract_references(node, context=node):
+                    if contract in self._multiprocessing_process_callable_evaluation_stack:
+                        continue
+                    self._multiprocessing_process_callable_evaluation_stack.add(contract)
+                    try:
+                        if any(
+                            self._returned_multiprocessing_process_receiver(value)
+                            for value in helper_return_values.get(contract, ())
+                        ):
+                            return True
+                    finally:
+                        self._multiprocessing_process_callable_evaluation_stack.remove(
+                            contract
+                        )
+                return False
+
+            def _returned_multiprocessing_process_receiver(
+                self,
+                node: ast.AST | None,
+            ) -> bool:
+                if isinstance(
+                    node,
+                    (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp),
+                ):
+                    return self._returned_multiprocessing_process_comprehension(node)
+                if (
+                    isinstance(node, ast.Call)
+                    and self._value_container_constructor_reference(node.func)
+                    and any(
+                        self._returned_multiprocessing_process_receiver(candidate)
+                        for candidate in (
+                            *node.args,
+                            *(keyword.value for keyword in node.keywords),
+                        )
+                    )
+                ):
+                    return True
+                if (
+                    isinstance(node, ast.Call)
+                    and self._builtin_map_reference(node.func)
+                    and bool(node.args)
+                    and self._multiprocessing_process_returning_callable(node.args[0])
+                ):
+                    return True
+                if any(
+                    self._returned_multiprocessing_process_receiver(candidate)
+                    for candidate in self._iterable_adapter_process_sources(node)
+                ):
+                    return True
+                if (
+                    isinstance(node, ast.Call)
+                    and self._observed_multiprocessing_process_factory_receiver(
+                        node.func
+                    )
+                ):
+                    return True
+                if _multiprocessing_process_receiver(
+                    node,
+                    self._module_aliases(),
+                    self._callable_aliases(),
+                    builtin_getattr_available=(
+                        self._builtin_receiver_available("getattr")
+                    ),
+                    builtin_object_available=(
+                        self._builtin_receiver_available("object")
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                    vars_references=self._vars_aliases(),
+                ):
+                    return True
+                if isinstance(node, ast.NamedExpr):
+                    return self._returned_multiprocessing_process_receiver(node.value)
+                if isinstance(node, ast.IfExp):
+                    return self._returned_multiprocessing_process_receiver(
+                        node.body
+                    ) or self._returned_multiprocessing_process_receiver(node.orelse)
+                if isinstance(node, ast.BoolOp):
+                    return any(
+                        self._returned_multiprocessing_process_receiver(candidate)
+                        for candidate in node.values
+                    )
+                if isinstance(node, (ast.Await, ast.Yield, ast.YieldFrom)):
+                    return self._returned_multiprocessing_process_receiver(node.value)
+                if not isinstance(node, ast.Call):
+                    return False
+                for contract in returned_contract_references(
+                    node.func,
+                    context=node,
+                ):
+                    if contract in self._multiprocessing_return_evaluation_stack:
+                        continue
+                    self._multiprocessing_return_evaluation_stack.add(contract)
+                    try:
+                        if any(
+                            self._returned_multiprocessing_process_receiver(value)
+                            for value in helper_return_values.get(contract, ())
+                        ):
+                            return True
+                    finally:
+                        self._multiprocessing_return_evaluation_stack.remove(contract)
+                if node.args and not node.keywords:
+                    builtin_name: str | None = None
+                    if isinstance(node.func, ast.Name) and (
+                        node.func.id in {"iter", "next"}
+                        and self._builtin_receiver_available(node.func.id)
+                    ):
+                        builtin_name = node.func.id
+                    elif (
+                        isinstance(node.func, ast.Attribute)
+                        and node.func.attr in {"iter", "next"}
+                        and _dotted_name(node.func.value) in self._builtins_aliases()
+                    ):
+                        builtin_name = node.func.attr
+                    if (
+                        builtin_name == "next"
+                        or (builtin_name == "iter" and len(node.args) == 1)
+                    ):
+                        return self._returned_multiprocessing_process_receiver(
+                            node.args[0]
+                        )
+                return any(
+                    self._returned_multiprocessing_process_receiver(candidate)
+                    for candidate in self._returned_contract_arguments(node)
+                )
+
+            def _returned_multiprocessing_process_comprehension(
+                self,
+                node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
+            ) -> bool:
+                self._push_alias_scope("comprehension")
+                try:
+                    for generator in node.generators:
+                        module_aliases = self._module_aliases()
+                        callable_aliases = self._callable_aliases()
+                        target_module_kinds = self._bound_iterable_module_kinds(
+                            generator.target,
+                            generator.iter,
+                            module_aliases,
+                            callable_aliases,
+                        )
+                        for name in self._bound_names(generator.target):
+                            self._bind_aliases(
+                                name,
+                                module_kind=target_module_kinds.get(name),
+                                call_kind=None,
+                            )
+                    values = (
+                        (node.key, node.value)
+                        if isinstance(node, ast.DictComp)
+                        else (node.elt,)
+                    )
+                    return any(
+                        self._returned_multiprocessing_process_receiver(value)
+                        for value in values
+                    )
+                finally:
+                    self._pop_alias_scope()
+
+            def _returned_multiprocessing_process_start_reference_kind(
+                self,
+                node: ast.AST | None,
+            ) -> str | None:
+                if isinstance(node, ast.Attribute):
+                    receiver, attribute = node.value, node.attr
+                else:
+                    receiver, attribute = _static_attribute_lookup(
+                        node,
+                        builtin_getattr_available=(
+                            self._builtin_receiver_available("getattr")
+                        ),
+                        builtin_object_available=(
+                            self._builtin_receiver_available("object")
+                        ),
+                        builtin_getattr_owners=self._builtins_aliases(),
+                        builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                        vars_references=self._vars_aliases(),
+                    )
+                return (
+                    "multiprocessing.Process.start"
+                    if attribute == "start"
+                    and self._returned_multiprocessing_process_receiver(receiver)
+                    else None
                 )
 
             def _returned_event_loop_process_call_kind(
@@ -3597,6 +4566,13 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     if preserve_conditional_vars and self._conditional_depth > 0
                     else set()
                 )
+                dependent_mutation_aliases = {
+                    reference
+                    for reference, (receiver, _) in (
+                        self._multiprocessing_container_mutation_aliases().items()
+                    )
+                    if receiver == name or receiver.startswith(f"{name}.")
+                }
                 preserve_qualified_aliases = (
                     {
                         reference
@@ -3625,6 +4601,22 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         callable_alias_stack[-1].pop(reference, None)
                 module_shadow_stack[-1].add(name)
                 module_alias_stack[-1].pop(name, None)
+                multiprocessing_container_mutation_shadow_stack[-1].add(name)
+                multiprocessing_container_mutation_shadow_stack[-1].update(
+                    dependent_mutation_aliases
+                )
+                for reference in tuple(
+                    multiprocessing_container_mutation_alias_stack[-1]
+                ):
+                    if (
+                        reference == name
+                        or reference.startswith(f"{name}.")
+                        or reference in dependent_mutation_aliases
+                    ):
+                        multiprocessing_container_mutation_alias_stack[-1].pop(
+                            reference,
+                            None,
+                        )
                 conditional_global_or_module_binding = (
                     self._conditional_depth > 0
                     and (
@@ -3718,6 +4710,13 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     if self._conditional_depth > 0
                     else set()
                 )
+                dependent_mutation_aliases = {
+                    reference
+                    for reference, (receiver, _) in (
+                        self._multiprocessing_container_mutation_aliases().items()
+                    )
+                    if receiver == name or receiver.startswith(f"{name}.")
+                }
                 if name in global_name_stack[-1]:
                     target_indexes = {0, current_index}
                 elif name in nonlocal_name_stack[-1] and current_index > 0:
@@ -3734,6 +4733,18 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         if reference == name or reference.startswith(f"{name}."):
                             callable_alias_stack[index].pop(reference, None)
                     module_alias_stack[index].pop(name, None)
+                    for reference in tuple(
+                        multiprocessing_container_mutation_alias_stack[index]
+                    ):
+                        if (
+                            reference == name
+                            or reference.startswith(f"{name}.")
+                            or reference in dependent_mutation_aliases
+                        ):
+                            multiprocessing_container_mutation_alias_stack[index].pop(
+                                reference,
+                                None,
+                            )
                     operator_transform_alias_stack[index].pop(name, None)
                     for aliases in (
                         resolver_alias_stack,
@@ -3759,6 +4770,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         for shadows in (
                             callable_shadow_stack,
                             module_shadow_stack,
+                            multiprocessing_container_mutation_shadow_stack,
                             resolver_shadow_stack,
                             importlib_shadow_stack,
                             builtins_shadow_stack,
@@ -4061,6 +5073,61 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     )
                 return projected
 
+            def _bound_iterable_module_kinds(
+                self,
+                target: ast.AST,
+                value: ast.AST | None,
+                module_aliases: dict[str, set[str]],
+                callable_aliases: dict[str, str],
+            ) -> dict[str, str]:
+                if isinstance(value, ast.Call):
+                    if (
+                        self._builtin_reference(value.func, {"zip"})
+                        and isinstance(target, (ast.Tuple, ast.List))
+                        and len(target.elts) == len(value.args)
+                    ):
+                        projected: dict[str, str] = {}
+                        for nested_target, source in zip(
+                            target.elts,
+                            value.args,
+                            strict=True,
+                        ):
+                            projected.update(
+                                self._bound_iterable_module_kinds(
+                                    nested_target,
+                                    source,
+                                    module_aliases,
+                                    callable_aliases,
+                                )
+                            )
+                        return projected
+                    if (
+                        self._builtin_reference(value.func, {"enumerate"})
+                        and isinstance(target, (ast.Tuple, ast.List))
+                        and len(target.elts) == 2
+                        and value.args
+                    ):
+                        return self._bound_iterable_module_kinds(
+                            target.elts[1],
+                            value.args[0],
+                            module_aliases,
+                            callable_aliases,
+                        )
+                    adapter_sources = self._iterable_adapter_process_sources(value)
+                    if len(adapter_sources) == 1:
+                        return self._bound_iterable_module_kinds(
+                            target,
+                            adapter_sources[0],
+                            module_aliases,
+                            callable_aliases,
+                        )
+                return self._bound_module_kinds(
+                    target,
+                    value,
+                    module_aliases,
+                    callable_aliases,
+                )
+
             def _builtin_getattr_bound_names(
                 self,
                 target: ast.AST,
@@ -4308,6 +5375,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 callable_shadow_stack.append(set())
                 module_alias_stack.append({})
                 module_shadow_stack.append(set())
+                multiprocessing_container_mutation_alias_stack.append({})
+                multiprocessing_container_mutation_shadow_stack.append(set())
                 builtin_name_shadow_stack.append(set())
                 builtin_getattr_alias_stack.append(set())
                 builtin_getattr_shadow_stack.append(set())
@@ -4371,6 +5440,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 builtin_getattr_shadow_stack.pop()
                 builtin_getattr_alias_stack.pop()
                 builtin_name_shadow_stack.pop()
+                multiprocessing_container_mutation_shadow_stack.pop()
+                multiprocessing_container_mutation_alias_stack.pop()
                 module_shadow_stack.pop()
                 module_alias_stack.pop()
                 callable_shadow_stack.pop()
@@ -4463,7 +5534,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     return
                 if call_kind:
                     self._record(node, call_kind)
-                elif module_kind:
+                elif (
+                    module_kind
+                    and module_kind not in NON_EXECUTION_PROVENANCE_MODULE_KINDS
+                ):
                     # Class attributes can later be reached through the class, an
                     # instance, classmethod receivers, getattr, or metaprogramming.
                     # Treat exposing a process module on a class as a ratchet hit
@@ -4528,7 +5602,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         builtin_getattr_alias_stack[-2].add(bound_name)
                 if call_kind:
                     self._record(node, call_kind)
-                elif module_kind:
+                elif (
+                    module_kind
+                    and module_kind not in NON_EXECUTION_PROVENANCE_MODULE_KINDS
+                ):
                     # Propagating an execution-capable alias across a lexical
                     # boundary is itself ratcheted; no interprocedural execution
                     # order needs to be guessed to keep the boundary fail-closed.
@@ -4583,6 +5660,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         self._record(node, observed_call_kind)
                 for observed_module_kind in sorted(
                     {kind for kind in (previous_module_kind, module_kind) if kind}
+                    - NON_EXECUTION_PROVENANCE_MODULE_KINDS
                 ):
                     self._record(node, f"{observed_module_kind}.*")
                 for observed_dynamic_kind in sorted(
@@ -4689,7 +5767,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         module_aliases,
                     )
                     if module_kind:
-                        self._record(candidate, f"{module_kind}.*")
+                        if module_kind not in NON_EXECUTION_PROVENANCE_MODULE_KINDS:
+                            self._record(candidate, f"{module_kind}.*")
                         return
                     call_kind = self._observed_callable_reference_kind(
                         candidate,
@@ -4922,6 +6001,64 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         self._record(node, kind)
                         recorded.add(kind)
 
+            def _record_multiprocessing_process_argument_execution(
+                self,
+                node: ast.Call,
+            ) -> None:
+                contracts = callback_contract_references(node.func, context=node)
+                if not contracts:
+                    return
+                candidates: list[ast.AST] = []
+                for contract in contracts:
+                    consumes_receiver = callback_contract_consumes_receiver(
+                        node.func,
+                        contract,
+                    )
+                    for position in (
+                        multiprocessing_process_receiver_parameter_positions.get(
+                            contract,
+                            set(),
+                        )
+                    ):
+                        argument_position = (
+                            position - 1
+                            if consumes_receiver and position > 0
+                            else position
+                        )
+                        if argument_position < len(node.args):
+                            argument = node.args[argument_position]
+                            candidates.append(
+                                argument.value
+                                if isinstance(argument, ast.Starred)
+                                else argument
+                            )
+                        elif any(
+                            isinstance(argument, ast.Starred)
+                            for argument in node.args
+                        ):
+                            candidates.extend(
+                                argument.value
+                                for argument in node.args
+                                if isinstance(argument, ast.Starred)
+                            )
+                    parameter_names = (
+                        multiprocessing_process_receiver_parameter_names.get(
+                            contract,
+                            set(),
+                        )
+                    )
+                    candidates.extend(
+                        keyword.value
+                        for keyword in node.keywords
+                        if keyword.arg in parameter_names
+                        or (keyword.arg is None and bool(parameter_names))
+                    )
+                if any(
+                    self._returned_multiprocessing_process_receiver(candidate)
+                    for candidate in candidates
+                ):
+                    self._record(node, "multiprocessing.Process.start")
+
             def _bind_dynamic_callable_container_mutation(
                 self,
                 node: ast.Call,
@@ -4932,6 +6069,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     "__setitem__": (1,),
                     "add": (0,),
                     "append": (0,),
+                    "appendleft": (0,),
                     "extend": (0,),
                     "insert": (1,),
                     "setdefault": (1,),
@@ -4964,6 +6102,112 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         DYNAMIC_ATTRIBUTE_CALLABLE_KIND
                     )
                     return
+
+            def _bind_multiprocessing_process_container_mutation(
+                self,
+                node: ast.Call,
+            ) -> None:
+                mutation_reference = (
+                    self._multiprocessing_container_mutation_reference(node.func)
+                )
+                if mutation_reference is None:
+                    return
+                target_reference, mutation_method = mutation_reference
+                argument_indexes = {
+                    "__setitem__": (1,),
+                    "add": (0,),
+                    "append": (0,),
+                    "appendleft": (0,),
+                    "extend": (0,),
+                    "insert": (1,),
+                    "setdefault": (1,),
+                    "update": (0,),
+                }.get(mutation_method)
+                if argument_indexes is None:
+                    return
+                candidates = [
+                    node.args[index]
+                    for index in argument_indexes
+                    if index < len(node.args)
+                ]
+                if mutation_method == "update":
+                    candidates.extend(keyword.value for keyword in node.keywords)
+                if any(
+                    self._returned_multiprocessing_process_receiver(candidate)
+                    for candidate in candidates
+                ):
+                    module_kind = "multiprocessing_process"
+                elif any(
+                    self._observed_multiprocessing_process_factory_receiver(candidate)
+                    for candidate in candidates
+                ):
+                    module_kind = "multiprocessing_process_factory"
+                else:
+                    return
+                module_alias_stack[-1][target_reference] = module_kind
+
+            def _bind_multiprocessing_process_subscription_assignment(
+                self,
+                target: ast.AST,
+                value: ast.AST | None,
+            ) -> None:
+                if not isinstance(target, ast.Subscript):
+                    return
+                if self._returned_multiprocessing_process_receiver(value):
+                    module_kind = "multiprocessing_process"
+                elif self._observed_multiprocessing_process_factory_receiver(value):
+                    module_kind = "multiprocessing_process_factory"
+                else:
+                    return
+                target_reference = _dotted_name(target.value)
+                if target_reference is not None:
+                    module_alias_stack[-1][target_reference] = module_kind
+
+            def _bind_static_process_container_elements(
+                self,
+                target: ast.AST,
+                value: ast.AST | None,
+            ) -> None:
+                target_reference = _dotted_name(target)
+                if target_reference is None:
+                    return
+                elements: list[tuple[str, ast.AST]] = []
+                if isinstance(value, (ast.List, ast.Tuple)):
+                    elements = [
+                        (str(index), element)
+                        for index, element in enumerate(value.elts)
+                    ]
+                elif isinstance(value, ast.Dict):
+                    elements = [
+                        (key, element)
+                        for key_node, element in zip(
+                            value.keys,
+                            value.values,
+                            strict=True,
+                        )
+                        if key_node is not None
+                        and (key := _static_subscript_key(key_node)) is not None
+                    ]
+                if not elements:
+                    return
+                process_elements: list[bool] = []
+                for key, element in elements:
+                    module_kind = self._observed_module_or_event_loop_reference_kind(
+                        element,
+                        self._module_aliases(),
+                        self._callable_aliases(),
+                    )
+                    process_elements.append(
+                        module_kind == "multiprocessing_process"
+                    )
+                    if module_kind is not None:
+                        module_alias_stack[-1][f"{target_reference}.{key}"] = (
+                            module_kind
+                        )
+                if any(process_elements) and not all(process_elements):
+                    module_alias_stack[-1][target_reference] = (
+                        "multiprocessing_process_mixed"
+                    )
 
             def _record(self, node: ast.AST, call_kind: str) -> None:
                 normalized_kind = _normalized_execution_kind(call_kind)
@@ -5217,6 +6461,24 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     if defined_in_class_body and class_reference_stack
                     else node.name
                 )
+                multiprocessing_process_subclass = any(
+                    self._observed_multiprocessing_process_factory_receiver(base)
+                    for base in node.bases
+                )
+                multiprocessing_pool_subclass = any(
+                    self._observed_multiprocessing_launch_factory_kind(base)
+                    == "multiprocessing.Pool"
+                    for base in node.bases
+                )
+                multiprocessing_subclass_kind = (
+                    "multiprocessing_process_factory"
+                    if multiprocessing_process_subclass
+                    else (
+                        "multiprocessing_pool_factory"
+                        if multiprocessing_pool_subclass
+                        else None
+                    )
+                )
                 inherited_class_exports = {
                     suffix.removeprefix(".")
                     for base in node.bases
@@ -5241,7 +6503,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 self._record_conditional_alias_exposure(
                     node,
                     bound_name=node.name,
-                    module_kind=None,
+                    module_kind=multiprocessing_subclass_kind,
                     call_kind=None,
                 )
                 for decorator in node.decorator_list:
@@ -5301,7 +6563,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     class_scope_depth_stack.pop()
                     self._pop_alias_scope()
                     function_stack.pop()
-                self._shadow_name(node.name)
+                if multiprocessing_subclass_kind is not None:
+                    self._bind_aliases(
+                        node.name,
+                        module_kind=multiprocessing_subclass_kind,
+                        call_kind=None,
+                    )
+                else:
+                    self._shadow_name(node.name)
                 for reference in tuple(callable_alias_stack[-1]):
                     if reference.startswith(f"{node.name}."):
                         callable_alias_stack[-1].pop(reference, None)
@@ -5408,12 +6677,31 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         if module_kind is not None
                         else None
                     )
-                    bound_module_kind = (
-                        "asyncio"
-                        if node.module == "asyncio"
+                    bound_module_kind = None
+                    if (
+                        node.module == "asyncio"
                         and alias.name in {"events", "subprocess"}
-                        else None
-                    )
+                    ):
+                        bound_module_kind = "asyncio"
+                    elif node.level == 0 and node.module == "multiprocessing":
+                        bound_module_kind = {
+                            "Process": "multiprocessing_process_factory",
+                            "get_context": "multiprocessing_context_factory",
+                            "Pool": "multiprocessing_pool_factory",
+                            "Manager": "multiprocessing_manager_factory",
+                        }.get(alias.name)
+                    elif (
+                        node.level == 0
+                        and node.module == "multiprocessing.managers"
+                        and alias.name in {"BaseManager", "SyncManager"}
+                    ):
+                        bound_module_kind = "multiprocessing_process_factory"
+                    elif (
+                        node.level == 0
+                        and node.module == "multiprocessing.pool"
+                        and alias.name == "Pool"
+                    ):
+                        bound_module_kind = "multiprocessing_pool_factory"
                     bound_call_kind = (
                         f"dynamic_code.{alias.name}"
                         if node.module == "builtins"
@@ -5519,26 +6807,35 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 node: ast.For | ast.AsyncFor,
             ) -> None:
                 self._record_binding_source_exposure(node, node.iter)
-                self.visit(node.iter)
+                module_aliases = self._module_aliases()
+                callable_aliases = self._callable_aliases()
+                target_module_kinds = self._bound_iterable_module_kinds(
+                    node.target,
+                    node.iter,
+                    module_aliases,
+                    callable_aliases,
+                )
                 call_kind = self._observed_callable_reference_kind(
                     node.iter,
-                    self._module_aliases(),
-                    self._callable_aliases(),
+                    module_aliases,
+                    callable_aliases,
                 ) or self._returned_callable_kind(
                     node.iter
                 ) or self._dynamic_attribute_callable_kind(node.iter)
+                self.visit(node.iter)
                 self._conditional_depth += 1
                 try:
                     for name in self._bound_names(node.target):
+                        target_module_kind = target_module_kinds.get(name)
                         self._record_conditional_alias_exposure(
                             node,
                             bound_name=name,
-                            module_kind=None,
+                            module_kind=target_module_kind,
                             call_kind=call_kind,
                         )
                         self._bind_aliases(
                             name,
-                            module_kind=None,
+                            module_kind=target_module_kind,
                             call_kind=call_kind,
                         )
                     self.visit(node.target)
@@ -5631,6 +6928,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             def visit_Assign(self, node: ast.Assign) -> None:
                 aliases = self._callable_aliases()
                 current_module_aliases = self._module_aliases()
+                mutation_alias = (
+                    self._multiprocessing_container_mutation_reference(node.value)
+                )
                 module_kind = self._observed_module_or_event_loop_reference_kind(
                     node.value,
                     current_module_aliases,
@@ -5694,6 +6994,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             ),
                         )
                 self.visit(node.value)
+                for target in node.targets:
+                    self._bind_multiprocessing_process_subscription_assignment(
+                        target,
+                        node.value,
+                    )
                 self._record_class_exposure(
                     node,
                     bound_names=tuple(
@@ -5820,10 +7125,21 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             target_reference,
                             builtin_getattr_alias=builtin_getattr_alias,
                         )
+                    self._bind_multiprocessing_container_mutation_alias(
+                        target,
+                        mutation_alias,
+                    )
+                    self._bind_static_process_container_elements(
+                        target,
+                        node.value,
+                    )
 
             def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
                 aliases = self._callable_aliases()
                 current_module_aliases = self._module_aliases()
+                mutation_alias = (
+                    self._multiprocessing_container_mutation_reference(node.value)
+                )
                 module_kind = self._observed_module_or_event_loop_reference_kind(
                     node.value,
                     current_module_aliases,
@@ -5876,6 +7192,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     )
                 if node.value is not None:
                     self.visit(node.value)
+                    self._bind_multiprocessing_process_subscription_assignment(
+                        node.target,
+                        node.value,
+                    )
                 self._record_class_exposure(
                     node,
                     bound_names=(
@@ -5987,10 +7307,21 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         target_reference,
                         builtin_getattr_alias=builtin_getattr_alias,
                     )
+                self._bind_multiprocessing_container_mutation_alias(
+                    node.target,
+                    mutation_alias,
+                )
+                self._bind_static_process_container_elements(
+                    node.target,
+                    node.value,
+                )
 
             def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
                 aliases = self._callable_aliases()
                 current_module_aliases = self._module_aliases()
+                mutation_alias = (
+                    self._multiprocessing_container_mutation_reference(node.value)
+                )
                 module_kind = self._observed_module_or_event_loop_reference_kind(
                     node.value,
                     current_module_aliases,
@@ -6085,8 +7416,23 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         callable_alias_stack[-1][node.target.id] = (
                             DYNAMIC_ATTRIBUTE_CALLABLE_KIND
                         )
+                self._bind_multiprocessing_container_mutation_alias(
+                    node.target,
+                    mutation_alias,
+                )
 
             def visit_AugAssign(self, node: ast.AugAssign) -> None:
+                process_container_kind = (
+                    "multiprocessing_process"
+                    if self._returned_multiprocessing_process_receiver(node.value)
+                    else (
+                        "multiprocessing_process_factory"
+                        if self._observed_multiprocessing_process_factory_receiver(
+                            node.value
+                        )
+                        else None
+                    )
+                )
                 call_kind = self._observed_callable_reference_kind(
                     node.value,
                     self._module_aliases(),
@@ -6102,6 +7448,12 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         self._record(node, call_kind)
                     else:
                         callable_alias_stack[-1][target_reference] = call_kind
+                if process_container_kind is not None:
+                    target_reference = _dotted_name(node.target)
+                    if target_reference is not None:
+                        module_alias_stack[-1][target_reference] = (
+                            process_container_kind
+                        )
                 self.visit(node.target)
 
             def visit_Delete(self, node: ast.Delete) -> None:
@@ -6115,7 +7467,32 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 self._record_literal_code_execution(node)
                 self._record_dynamic_callable_argument_escape(node)
                 self._record_event_loop_receiver_argument_execution(node)
+                self._record_multiprocessing_process_argument_execution(node)
                 self._bind_dynamic_callable_container_mutation(node)
+                self._bind_multiprocessing_process_container_mutation(node)
+                multiprocessing_call_kind = (
+                    _multiprocessing_process_start_call_kind(
+                        node,
+                        self._module_aliases(),
+                        aliases,
+                        builtin_getattr_available=(
+                            self._builtin_receiver_available("getattr")
+                        ),
+                        builtin_object_available=(
+                            self._builtin_receiver_available("object")
+                        ),
+                        builtin_getattr_owners=self._builtins_aliases(),
+                        builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                        vars_references=self._vars_aliases(),
+                    )
+                )
+                if multiprocessing_call_kind is not None:
+                    self._record(node, multiprocessing_call_kind)
+                multiprocessing_launch_kind = self._multiprocessing_launch_call_kind(
+                    node
+                )
+                if multiprocessing_launch_kind is not None:
+                    self._record(node, multiprocessing_launch_kind)
                 returned_event_loop_call_kind = (
                     self._returned_event_loop_process_call_kind(node)
                 )
@@ -6346,6 +7723,383 @@ def _asyncio_task_receiver(
         and node.func.attr == "current_task"
         and _module_reference_kind(node.func.value, module_aliases) == "asyncio"
     )
+
+
+def _multiprocessing_context_factory_receiver(
+    node: ast.AST | None,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+    *,
+    builtin_getattr_available: bool = True,
+    builtin_object_available: bool = True,
+    builtin_getattr_owners: set[str] | frozenset[str] = frozenset(),
+    builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
+    vars_references: set[str] | frozenset[str] = DEFAULT_VARS_REFERENCES,
+) -> bool:
+    def context_factory(candidate: ast.AST | None) -> bool:
+        return _multiprocessing_context_factory_receiver(
+            candidate,
+            module_aliases,
+            function_aliases,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+
+    if isinstance(node, ast.NamedExpr):
+        return context_factory(node.value)
+    if isinstance(node, ast.IfExp):
+        return context_factory(node.body) or context_factory(node.orelse)
+    if isinstance(node, ast.BoolOp):
+        return any(context_factory(candidate) for candidate in node.values)
+    if (
+        _module_reference_kind(node, module_aliases)
+        == "multiprocessing_context_factory"
+    ):
+        return True
+    reference = _dotted_name(node)
+    if function_aliases.get(reference or "") == "multiprocessing.get_context":
+        return True
+    if isinstance(node, ast.Attribute):
+        receiver, attribute = node.value, node.attr
+    else:
+        receiver, attribute = _static_attribute_lookup(
+            node,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+    return (
+        attribute == "get_context"
+        and _module_reference_kind(receiver, module_aliases)
+        == "multiprocessing"
+    )
+
+
+def _multiprocessing_context_receiver(
+    node: ast.AST | None,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+    *,
+    builtin_getattr_available: bool = True,
+    builtin_object_available: bool = True,
+    builtin_getattr_owners: set[str] | frozenset[str] = frozenset(),
+    builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
+    vars_references: set[str] | frozenset[str] = DEFAULT_VARS_REFERENCES,
+) -> bool:
+    def context_receiver(candidate: ast.AST | None) -> bool:
+        return _multiprocessing_context_receiver(
+            candidate,
+            module_aliases,
+            function_aliases,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+
+    if isinstance(node, ast.NamedExpr):
+        return context_receiver(node.value)
+    if isinstance(node, ast.IfExp):
+        return context_receiver(node.body) or context_receiver(node.orelse)
+    if isinstance(node, ast.BoolOp):
+        return any(context_receiver(candidate) for candidate in node.values)
+    if _module_reference_kind(node, module_aliases) == "multiprocessing_context":
+        return True
+    return isinstance(node, ast.Call) and _multiprocessing_context_factory_receiver(
+        node.func,
+        module_aliases,
+        function_aliases,
+        builtin_getattr_available=builtin_getattr_available,
+        builtin_object_available=builtin_object_available,
+        builtin_getattr_owners=builtin_getattr_owners,
+        builtin_getattr_aliases=builtin_getattr_aliases,
+        vars_references=vars_references,
+    )
+
+
+def _multiprocessing_process_factory_receiver(
+    node: ast.AST | None,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+    *,
+    builtin_getattr_available: bool = True,
+    builtin_object_available: bool = True,
+    builtin_getattr_owners: set[str] | frozenset[str] = frozenset(),
+    builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
+    vars_references: set[str] | frozenset[str] = DEFAULT_VARS_REFERENCES,
+) -> bool:
+    def process_factory(candidate: ast.AST | None) -> bool:
+        return _multiprocessing_process_factory_receiver(
+            candidate,
+            module_aliases,
+            function_aliases,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+
+    if isinstance(node, ast.NamedExpr):
+        return _multiprocessing_process_factory_receiver(
+            node.value,
+            module_aliases,
+            function_aliases,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+    if isinstance(node, ast.IfExp):
+        return _multiprocessing_process_factory_receiver(
+            node.body,
+            module_aliases,
+            function_aliases,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        ) or _multiprocessing_process_factory_receiver(
+            node.orelse,
+            module_aliases,
+            function_aliases,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+    if isinstance(node, ast.BoolOp):
+        return any(
+            _multiprocessing_process_factory_receiver(
+                candidate,
+                module_aliases,
+                function_aliases,
+                builtin_getattr_available=builtin_getattr_available,
+                builtin_object_available=builtin_object_available,
+                builtin_getattr_owners=builtin_getattr_owners,
+                builtin_getattr_aliases=builtin_getattr_aliases,
+                vars_references=vars_references,
+            )
+            for candidate in node.values
+        )
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return any(process_factory(candidate) for candidate in node.elts)
+    if isinstance(node, ast.Dict):
+        return any(
+            process_factory(candidate)
+            for candidate in (*node.keys, *node.values)
+            if candidate is not None
+        )
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+        return process_factory(node.elt)
+    if isinstance(node, ast.DictComp):
+        return process_factory(node.key) or process_factory(node.value)
+    if isinstance(node, (ast.Await, ast.Yield, ast.YieldFrom)):
+        return process_factory(node.value)
+    if isinstance(node, ast.Subscript):
+        return process_factory(node.value)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in VALUE_FLOW_METHOD_NAMES
+        and process_factory(node.func.value)
+    ):
+        return True
+    if (
+        _module_reference_kind(node, module_aliases)
+        == "multiprocessing_process_factory"
+    ):
+        return True
+    reference = _dotted_name(node)
+    if function_aliases.get(reference or "") == "multiprocessing.Process":
+        return True
+    if isinstance(node, ast.Attribute):
+        receiver, attribute = node.value, node.attr
+    else:
+        receiver, attribute = _static_attribute_lookup(
+            node,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+    return (
+        attribute == "Process"
+        and (
+            _module_reference_kind(receiver, module_aliases)
+            == "multiprocessing"
+            or _multiprocessing_context_receiver(
+                receiver,
+                module_aliases,
+                function_aliases,
+                builtin_getattr_available=builtin_getattr_available,
+                builtin_object_available=builtin_object_available,
+                builtin_getattr_owners=builtin_getattr_owners,
+                builtin_getattr_aliases=builtin_getattr_aliases,
+                vars_references=vars_references,
+            )
+        )
+    )
+
+
+def _multiprocessing_process_receiver(
+    node: ast.AST | None,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+    *,
+    builtin_getattr_available: bool = True,
+    builtin_object_available: bool = True,
+    builtin_getattr_owners: set[str] | frozenset[str] = frozenset(),
+    builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
+    vars_references: set[str] | frozenset[str] = DEFAULT_VARS_REFERENCES,
+) -> bool:
+    def process_receiver(candidate: ast.AST | None) -> bool:
+        return _multiprocessing_process_receiver(
+            candidate,
+            module_aliases,
+            function_aliases,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+
+    if isinstance(node, ast.NamedExpr):
+        return process_receiver(node.value)
+    if isinstance(node, ast.IfExp):
+        return process_receiver(node.body) or process_receiver(node.orelse)
+    if isinstance(node, ast.BoolOp):
+        return any(process_receiver(candidate) for candidate in node.values)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return any(process_receiver(candidate) for candidate in node.elts)
+    if isinstance(node, ast.Dict):
+        return any(
+            process_receiver(candidate)
+            for candidate in (*node.keys, *node.values)
+            if candidate is not None
+        )
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+        return process_receiver(node.elt)
+    if isinstance(node, ast.DictComp):
+        return process_receiver(node.key) or process_receiver(node.value)
+    if _module_reference_kind(node, module_aliases) in {
+        "multiprocessing_process",
+        "multiprocessing_process_mixed",
+    }:
+        return True
+    if isinstance(node, ast.Call):
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in VALUE_FLOW_METHOD_NAMES
+            and process_receiver(node.func.value)
+        ):
+            return True
+        return _multiprocessing_process_factory_receiver(
+            node.func,
+            module_aliases,
+            function_aliases,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+    if isinstance(node, ast.Subscript):
+        if (
+            _module_reference_kind(node.value, module_aliases)
+            == "multiprocessing_process_mixed"
+        ):
+            return (
+                _module_reference_kind(node, module_aliases)
+                == "multiprocessing_process"
+            )
+        return process_receiver(node.value)
+    return False
+
+
+def _multiprocessing_process_start_call_kind(
+    node: ast.Call,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+    *,
+    builtin_getattr_available: bool = True,
+    builtin_object_available: bool = True,
+    builtin_getattr_owners: set[str] | frozenset[str] = frozenset(),
+    builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
+    vars_references: set[str] | frozenset[str] = DEFAULT_VARS_REFERENCES,
+) -> str | None:
+    return _multiprocessing_process_start_reference_kind(
+        node.func,
+        module_aliases,
+        function_aliases,
+        builtin_getattr_available=builtin_getattr_available,
+        builtin_object_available=builtin_object_available,
+        builtin_getattr_owners=builtin_getattr_owners,
+        builtin_getattr_aliases=builtin_getattr_aliases,
+        vars_references=vars_references,
+    )
+
+
+def _multiprocessing_process_start_reference_kind(
+    node: ast.AST | None,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+    *,
+    builtin_getattr_available: bool = True,
+    builtin_object_available: bool = True,
+    builtin_getattr_owners: set[str] | frozenset[str] = frozenset(),
+    builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
+    vars_references: set[str] | frozenset[str] = DEFAULT_VARS_REFERENCES,
+) -> str | None:
+    if isinstance(node, ast.Attribute):
+        receiver, attribute = node.value, node.attr
+    else:
+        receiver, attribute = _static_attribute_lookup(
+            node,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+    if (
+        attribute == "start"
+        and (
+            _multiprocessing_process_receiver(
+                receiver,
+                module_aliases,
+                function_aliases,
+                builtin_getattr_available=builtin_getattr_available,
+                builtin_object_available=builtin_object_available,
+                builtin_getattr_owners=builtin_getattr_owners,
+                builtin_getattr_aliases=builtin_getattr_aliases,
+                vars_references=vars_references,
+            )
+            or _multiprocessing_process_factory_receiver(
+                receiver,
+                module_aliases,
+                function_aliases,
+                builtin_getattr_available=builtin_getattr_available,
+                builtin_object_available=builtin_object_available,
+                builtin_getattr_owners=builtin_getattr_owners,
+                builtin_getattr_aliases=builtin_getattr_aliases,
+                vars_references=vars_references,
+            )
+        )
+    ):
+        return "multiprocessing.Process.start"
+    return None
 
 
 def _event_loop_receiver(
@@ -7038,6 +8792,12 @@ def _static_string_value(node: ast.AST | None, *, depth: int = 0) -> str | None:
     return None
 
 
+def _static_subscript_key(node: ast.AST | None) -> str | None:
+    if isinstance(node, ast.Constant) and type(node.value) in {int, str}:
+        return str(node.value)
+    return _static_string_value(node)
+
+
 def _dotted_name(node: ast.AST | None) -> str | None:
     if isinstance(node, ast.Name):
         return node.id
@@ -7046,7 +8806,7 @@ def _dotted_name(node: ast.AST | None) -> str | None:
         return f"{owner}.{node.attr}" if owner is not None else None
     if isinstance(node, ast.Subscript):
         owner = _dotted_name(node.value)
-        key = _static_string_value(node.slice)
+        key = _static_subscript_key(node.slice)
         return f"{owner}.{key}" if owner is not None and key is not None else None
     owner_node, attribute = _static_attribute_lookup(node)
     if owner_node is not None and attribute is not None:
@@ -7056,10 +8816,24 @@ def _dotted_name(node: ast.AST | None) -> str | None:
 
 
 def _imported_process_module_kind(module_name: str | None) -> str | None:
-    root_module = (module_name or "").partition(".")[0]
+    normalized = module_name or ""
+    if normalized == "multiprocessing.dummy" or normalized.startswith(
+        "multiprocessing.dummy."
+    ):
+        return None
+    root_module = normalized.partition(".")[0]
     return (
         root_module
-        if root_module in {"subprocess", "os", "asyncio", "pty", "posix", "nt"}
+        if root_module
+        in {
+            "subprocess",
+            "os",
+            "asyncio",
+            "multiprocessing",
+            "pty",
+            "posix",
+            "nt",
+        }
         else None
     )
 
@@ -7114,13 +8888,1507 @@ def test_direct_execution_calls_remain_inside_reviewed_modules() -> None:
         (path, function, kind)
         for (path, function, kind) in records
         if kind.startswith(
-            ("os.", "asyncio.", "pty.", "posix.", "nt.", "dynamic_code.")
+            (
+                "os.",
+                "asyncio.",
+                "multiprocessing.",
+                "pty.",
+                "posix.",
+                "nt.",
+                "dynamic_code.",
+            )
         )
     }
 
     assert run_tcl_files == RUN_TCL_ALLOWED_FILES
     assert subprocess_files == SUBPROCESS_ALLOWED_FILES
     assert unapproved_shell_calls == set()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    multiprocessing.Process(target=target).start()\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def bypass(target):\n"
+            "    process = mp.Process(target=target)\n"
+            "    process.start()\n"
+        ),
+        (
+            "from multiprocessing import Process as Worker\n"
+            "def bypass(target):\n"
+            "    Worker(target=target).start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    multiprocessing.get_context('spawn').Process(\n"
+            "        target=target\n"
+            "    ).start()\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def bypass(target):\n"
+            "    context = mp.get_context('spawn')\n"
+            "    process = context.Process(target=target)\n"
+            "    process.start()\n"
+        ),
+        (
+            "from multiprocessing import get_context as context_factory\n"
+            "def bypass(target):\n"
+            "    context_factory('spawn').Process(target=target).start()\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def bypass(target):\n"
+            "    process = mp.Process(target=target)\n"
+            "    launch = process.start\n"
+            "    launch()\n"
+        ),
+        (
+            "from multiprocessing import Process as Worker\n"
+            "def bypass(target):\n"
+            "    launch = Worker(target=target).start\n"
+            "    launch()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "class Worker(multiprocessing.Process):\n"
+            "    pass\n"
+            "def bypass(target):\n"
+            "    Worker(target=target).start()\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def bypass(target):\n"
+            "    process = mp.Process(target=target)\n"
+            "    mp.Process.start(process)\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def bypass(target):\n"
+            "    process = mp.Process(target=target)\n"
+            "    getattr(process, 'start')()\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def bypass(funcs):\n"
+            "    workers = [mp.Process(target=fn) for fn in funcs]\n"
+            "    for worker in workers:\n"
+            "        worker.start()\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def bypass(funcs):\n"
+            "    workers = (mp.Process(target=fn) for fn in funcs)\n"
+            "    for worker in workers:\n"
+            "        worker.start()\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def bypass(target):\n"
+            "    workers = [mp.Process(target=target)]\n"
+            "    workers[0].start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    factory = getattr(multiprocessing, 'Process')\n"
+            "    factory(target=target).start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_recognizes_multiprocessing_process_launches(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "multiprocessing_launch.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_untrusted_process_start_methods(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "untrusted_process_start.py"
+    path.write_text(
+        "class Process:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def safe():\n"
+        "    Process().start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "class Process:\n"
+            "    def start(self):\n"
+            "        return None\n"
+            "def safe():\n"
+            "    launch = Process().start\n"
+            "    launch()\n"
+        ),
+        (
+            "class Process:\n"
+            "    def start(self):\n"
+            "        return None\n"
+            "def safe():\n"
+            "    getattr(Process(), 'start')()\n"
+        ),
+    ],
+)
+def test_execution_scanner_ignores_untrusted_bound_start_aliases(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "untrusted_bound_start.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+def test_execution_scanner_ignores_untrusted_process_comprehensions(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "untrusted_process_comprehension.py"
+    path.write_text(
+        "class Process:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def safe(values):\n"
+        "    workers = [Process() for value in values]\n"
+        "    for worker in workers:\n"
+        "        worker.start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+def test_execution_scanner_respects_shadowed_getattr_for_process_factories(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "shadowed_process_factory_getattr.py"
+    path.write_text(
+        "import multiprocessing\n"
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def getattr(owner, name):\n"
+        "    return Thread\n"
+        "def safe():\n"
+        "    getattr(multiprocessing, 'Process')().start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing as mp\n"
+            "def make_process(target):\n"
+            "    return mp.Process(target=target)\n"
+            "def bypass(target):\n"
+            "    make_process(target).start()\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def make_process(target):\n"
+            "    return mp.Process(target=target)\n"
+            "def relay_process(target):\n"
+            "    return make_process(target)\n"
+            "def bypass(target):\n"
+            "    relay_process(target).start()\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def identity(value):\n"
+            "    return value\n"
+            "def bypass(target):\n"
+            "    identity(mp.Process(target=target)).start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_returned_multiprocessing_processes(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "returned_multiprocessing_process.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_helpers_returning_untrusted_processes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "returned_untrusted_process.py"
+    path.write_text(
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def make_thread():\n"
+        "    return Thread()\n"
+        "def safe():\n"
+        "    make_thread().start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "workers.append(mp.Process(target=target))",
+        "workers.extend([mp.Process(target=target)])",
+        "workers.insert(0, mp.Process(target=target))",
+        "workers.add(mp.Process(target=target))",
+        "workers += [mp.Process(target=target)]",
+    ],
+)
+def test_execution_scanner_tracks_mutated_process_containers(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    path = tmp_path / "mutated_process_container.py"
+    container = "set()" if ".add(" in mutation else "[]"
+    path.write_text(
+        "import multiprocessing as mp\n"
+        "def bypass(target):\n"
+        f"    workers = {container}\n"
+        f"    {mutation}\n"
+        "    for worker in workers:\n"
+        "        worker.start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_mutated_untrusted_process_containers(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "mutated_untrusted_process_container.py"
+    path.write_text(
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def safe():\n"
+        "    workers = []\n"
+        "    workers.append(Thread())\n"
+        "    for worker in workers:\n"
+        "        worker.start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing as mp\n"
+            "def launch(process):\n"
+            "    process.start()\n"
+            "def bypass(target):\n"
+            "    launch(mp.Process(target=target))\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def launch(process):\n"
+            "    worker = process\n"
+            "    worker.start()\n"
+            "def bypass(target):\n"
+            "    launch(process=mp.Process(target=target))\n"
+        ),
+        (
+            "import multiprocessing as mp\n"
+            "def launch(process):\n"
+            "    process.start()\n"
+            "def relay(process):\n"
+            "    launch(process)\n"
+            "def bypass(target):\n"
+            "    relay(mp.Process(target=target))\n"
+        ),
+    ],
+)
+def test_execution_scanner_tracks_process_arguments_consumed_by_helpers(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "process_launch_helper.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_untrusted_arguments_consumed_by_helpers(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "untrusted_launch_helper.py"
+    path.write_text(
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def launch(worker):\n"
+        "    worker.start()\n"
+        "def safe():\n"
+        "    launch(Thread())\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def launch(process):\n"
+            "    getattr(process, 'start')()\n"
+            "def bypass(target):\n"
+            "    launch(multiprocessing.Process(target=target))\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def launch(process):\n"
+            "    run = process.start\n"
+            "    run()\n"
+            "def bypass(target):\n"
+            "    launch(multiprocessing.Process(target=target))\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def launch(process):\n"
+            "    run = process.start\n"
+            "    invoke = run\n"
+            "    invoke()\n"
+            "def bypass(target):\n"
+            "    launch(multiprocessing.Process(target=target))\n"
+        ),
+    ],
+)
+def test_execution_scanner_tracks_indirect_helper_start_calls(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "indirect_helper_start.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_respects_shadowed_getattr_in_launch_helpers(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "shadowed_helper_getattr.py"
+    path.write_text(
+        "import multiprocessing\n"
+        "def getattr(owner, name):\n"
+        "    return lambda: None\n"
+        "def launch(process):\n"
+        "    getattr(process, 'start')()\n"
+        "def safe(target):\n"
+        "    launch(multiprocessing.Process(target=target))\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    ("setup", "assignment", "launch"),
+    [
+        (
+            "workers = [None]",
+            "workers[0] = mp.Process(target=target)",
+            "workers[0].start()",
+        ),
+        (
+            "workers = {}",
+            "workers['worker'] = mp.Process(target=target)",
+            "workers['worker'].start()",
+        ),
+        (
+            "workers = [None]",
+            "workers[0:1] = [mp.Process(target=target)]",
+            "workers[0].start()",
+        ),
+    ],
+)
+def test_execution_scanner_tracks_process_subscription_assignments(
+    tmp_path: Path,
+    setup: str,
+    assignment: str,
+    launch: str,
+) -> None:
+    path = tmp_path / "process_subscription_assignment.py"
+    path.write_text(
+        "import multiprocessing as mp\n"
+        "def bypass(target):\n"
+        f"    {setup}\n"
+        f"    {assignment}\n"
+        f"    {launch}\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_untrusted_subscription_assignments(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "untrusted_subscription_assignment.py"
+    path.write_text(
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def safe():\n"
+        "    workers = [None]\n"
+        "    workers[0] = Thread()\n"
+        "    workers[0].start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    getattr(multiprocessing, 'get_context')('spawn').Process(\n"
+            "        target=target\n"
+            "    ).start()\n"
+        ),
+        (
+            "import builtins\n"
+            "import multiprocessing as mp\n"
+            "def bypass(target):\n"
+            "    builtins.getattr(mp, 'get_context')('spawn').Process(\n"
+            "        target=target\n"
+            "    ).start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_resolves_static_get_context_lookups(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "static_get_context.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_respects_shadowed_getattr_for_context_factories(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "shadowed_context_getattr.py"
+    path.write_text(
+        "import multiprocessing\n"
+        "class FakeContext:\n"
+        "    class Process:\n"
+        "        def start(self):\n"
+        "            return None\n"
+        "def getattr(owner, name):\n"
+        "    return lambda *args: FakeContext()\n"
+        "def safe():\n"
+        "    getattr(multiprocessing, 'get_context')().Process().start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def context():\n"
+            "    return multiprocessing.get_context('spawn')\n"
+            "def bypass(target):\n"
+            "    context().Process(target=target).start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def context():\n"
+            "    return multiprocessing.get_context('spawn')\n"
+            "def relay_context():\n"
+            "    return context()\n"
+            "def bypass(target):\n"
+            "    relay_context().Process(target=target).start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def identity(value):\n"
+            "    return value\n"
+            "def bypass(target):\n"
+            "    identity(multiprocessing.get_context('spawn')).Process(\n"
+            "        target=target\n"
+            "    ).start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_returned_multiprocessing_contexts(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "returned_multiprocessing_context.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import functools\n"
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    context_factory = functools.partial(\n"
+            "        multiprocessing.get_context, 'spawn'\n"
+            "    )\n"
+            "    context_factory().Process(target=target).start()\n"
+        ),
+        (
+            "from functools import partial\n"
+            "from multiprocessing import get_context\n"
+            "def bypass(target):\n"
+            "    partial(get_context, 'spawn')().Process(\n"
+            "        target=target\n"
+            "    ).start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_unwraps_partial_context_factories(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "partial_context_factory.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import functools\n"
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    factory = functools.partial(\n"
+            "        multiprocessing.Process, target=target\n"
+            "    )\n"
+            "    factory().start()\n"
+        ),
+        (
+            "from functools import partial as bind\n"
+            "from multiprocessing import Process\n"
+            "def bypass(target):\n"
+            "    bind(Process, target=target)().start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_preserves_partial_process_factories(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "partial_process_factory.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    factories = [multiprocessing.Process]\n"
+            "    factories[0](target=target).start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    factories = {'worker': multiprocessing.Process}\n"
+            "    factories['worker'](target=target).start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    factories = []\n"
+            "    factories.append(multiprocessing.Process)\n"
+            "    factories[0](target=target).start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    factories = [None]\n"
+            "    factories[0] = multiprocessing.Process\n"
+            "    factories[0](target=target).start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_process_factories_through_containers(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "process_factory_container.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    workers = [multiprocessing.Process(target=target)]\n"
+            "    workers.pop().start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    workers = {'worker': multiprocessing.Process(target=target)}\n"
+            "    workers.get('worker').start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    workers = {'worker': multiprocessing.Process(target=target)}\n"
+            "    next(iter(workers.values())).start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    factories = [multiprocessing.Process]\n"
+            "    factories.pop()(target=target).start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_preserves_provenance_through_container_accessors(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "process_container_accessor.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_untrusted_container_accessors(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "untrusted_container_accessor.py"
+    path.write_text(
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def safe():\n"
+        "    workers = [Thread()]\n"
+        "    workers.pop().start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "from collections import deque\n"
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    workers = deque([multiprocessing.Process(target=target)])\n"
+            "    workers.popleft().start()\n"
+        ),
+        (
+            "import collections\n"
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    workers = collections.deque(\n"
+            "        [multiprocessing.Process(target=target)]\n"
+            "    )\n"
+            "    workers.popleft().start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_preserves_deque_process_provenance(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "deque_process_accessor.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_untrusted_deque_accessors(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "untrusted_deque_accessor.py"
+    path.write_text(
+        "from collections import deque\n"
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def safe():\n"
+        "    workers = deque([Thread()])\n"
+        "    workers.popleft().start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def bypass():\n"
+            "    multiprocessing.Pool(processes=1)\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass():\n"
+            "    multiprocessing.get_context('spawn').Pool(processes=1)\n"
+        ),
+        (
+            "from multiprocessing import Pool as WorkerPool\n"
+            "def bypass():\n"
+            "    WorkerPool(processes=1)\n"
+        ),
+    ],
+)
+def test_execution_scanner_recognizes_multiprocessing_pool_construction(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "multiprocessing_pool.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "multiprocessing.Pool" for *_, kind in records), records
+
+
+def test_execution_scanner_excludes_multiprocessing_dummy_pool(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "multiprocessing_dummy_pool.py"
+    path.write_text(
+        "import multiprocessing.dummy\n"
+        "def safe():\n"
+        "    multiprocessing.dummy.Pool(processes=1)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def bypass():\n"
+            "    multiprocessing.Manager()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass():\n"
+            "    multiprocessing.get_context('spawn').Manager()\n"
+        ),
+        (
+            "from multiprocessing import Manager as ServerManager\n"
+            "def bypass():\n"
+            "    ServerManager()\n"
+        ),
+    ],
+)
+def test_execution_scanner_recognizes_multiprocessing_manager_construction(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "multiprocessing_manager.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "multiprocessing.Manager" for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def pool_factory():\n"
+            "    return multiprocessing.Pool\n"
+            "def bypass():\n"
+            "    pool_factory()(processes=1)\n"
+        ),
+        (
+            "from multiprocessing.pool import Pool\n"
+            "def bypass():\n"
+            "    Pool(processes=1)\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_multiprocessing_pool_factories(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "multiprocessing_pool_factory.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "multiprocessing.Pool" for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def safe(target):\n"
+            "    process = multiprocessing.Process(target=target)\n"
+            "    alias = process\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def safe(target):\n"
+            "    process = multiprocessing.Process(target=target)\n"
+            "    for item in [process]:\n"
+            "        alias = item\n"
+        ),
+    ],
+)
+def test_execution_scanner_does_not_record_process_value_exposure(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "process_value_exposure.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "from multiprocessing.managers import BaseManager\n"
+            "def bypass():\n"
+            "    manager = BaseManager()\n"
+            "    manager.start()\n"
+        ),
+        (
+            "from multiprocessing.managers import SyncManager\n"
+            "class CustomManager(SyncManager):\n"
+            "    pass\n"
+            "def bypass():\n"
+            "    CustomManager().start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_tracks_custom_manager_server_start(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "custom_manager_start.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+@pytest.mark.parametrize(
+    "loop_header",
+    [
+        "for _, worker in enumerate(workers):",
+        "for worker, _ in zip(workers, targets):",
+        "for worker in filter(None, workers):",
+        "for worker in sorted(workers, key=id):",
+        "for worker in reversed(workers):",
+    ],
+)
+def test_execution_scanner_propagates_processes_through_iterable_adapters(
+    tmp_path: Path,
+    loop_header: str,
+) -> None:
+    path = tmp_path / "iterable_process_adapter.py"
+    path.write_text(
+        "import multiprocessing\n"
+        "def bypass(targets):\n"
+        "    workers = [multiprocessing.Process(target=target) for target in targets]\n"
+        f"    {loop_header}\n"
+        "        worker.start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "workers.appendleft(multiprocessing.Process(target=target))",
+        (
+            "push = workers.appendleft\n"
+            "    push(multiprocessing.Process(target=target))"
+        ),
+    ],
+)
+def test_execution_scanner_tracks_deque_appendleft_process_mutations(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    path = tmp_path / "deque_appendleft_process.py"
+    path.write_text(
+        "import multiprocessing\n"
+        "from collections import deque\n"
+        "def bypass(target):\n"
+        "    workers = deque()\n"
+        f"    {mutation}\n"
+        "    workers.popleft().start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+@pytest.mark.parametrize("map_reference", ["map", "builtins.map"])
+def test_execution_scanner_tracks_lambda_process_factories_passed_to_map(
+    tmp_path: Path,
+    map_reference: str,
+) -> None:
+    path = tmp_path / "lambda_map_process.py"
+    path.write_text(
+        "import builtins\n"
+        "import multiprocessing\n"
+        "def bypass(targets):\n"
+        f"    workers = {map_reference}(\n"
+        "        lambda target: multiprocessing.Process(target=target), targets\n"
+        "    )\n"
+        "    for worker in workers:\n"
+        "        worker.start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "from multiprocessing.managers import BaseManager\n"
+            "def safe():\n"
+            "    manager = BaseManager()\n"
+        ),
+        (
+            "class Thread:\n"
+            "    def start(self):\n"
+            "        return None\n"
+            "def safe(values):\n"
+            "    workers = map(lambda value: Thread(), values)\n"
+            "    for worker in workers:\n"
+            "        worker.start()\n"
+        ),
+        (
+            "class Namespace:\n"
+            "    Process = object\n"
+            "def safe(values):\n"
+            "    workers = map(\n"
+            "        lambda multiprocessing: multiprocessing.Process(), values\n"
+            "    )\n"
+            "    for worker in workers:\n"
+            "        worker.start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_ignores_unstarted_or_untrusted_startables(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "untrusted_startable.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing.pool\n"
+            "class WorkerPool(multiprocessing.pool.Pool):\n"
+            "    pass\n"
+            "def bypass():\n"
+            "    WorkerPool(processes=1)\n"
+        ),
+        (
+            "from multiprocessing.pool import Pool\n"
+            "class WorkerPool(Pool):\n"
+            "    pass\n"
+            "def bypass():\n"
+            "    WorkerPool(processes=1)\n"
+        ),
+    ],
+)
+def test_execution_scanner_tracks_multiprocessing_pool_subclasses(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "multiprocessing_pool_subclass.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "multiprocessing.Pool" for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "comprehension",
+    [
+        "(worker for worker in workers)",
+        "[worker for worker in workers]",
+        "{worker for worker in workers}",
+    ],
+)
+def test_execution_scanner_propagates_processes_through_identity_comprehensions(
+    tmp_path: Path,
+    comprehension: str,
+) -> None:
+    path = tmp_path / "identity_process_comprehension.py"
+    path.write_text(
+        "import multiprocessing\n"
+        "def bypass(targets):\n"
+        "    workers = [multiprocessing.Process(target=target) for target in targets]\n"
+        f"    copied = {comprehension}\n"
+        "    for worker in copied:\n"
+        "        worker.start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_preserves_zip_process_positions(tmp_path: Path) -> None:
+    path = tmp_path / "zip_process_positions.py"
+    path.write_text(
+        "import multiprocessing\n"
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def safe(targets):\n"
+        "    threads = [Thread() for _ in targets]\n"
+        "    processes = [\n"
+        "        multiprocessing.Process(target=target) for target in targets\n"
+        "    ]\n"
+        "    for thread, process in zip(threads, processes):\n"
+        "        thread.start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def make_process(target):\n"
+            "    return multiprocessing.Process(target=target)\n"
+            "def bypass(targets):\n"
+            "    workers = map(make_process, targets)\n"
+            "    for worker in workers:\n"
+            "        worker.start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(targets):\n"
+            "    workers = map(multiprocessing.Process, targets)\n"
+            "    for worker in workers:\n"
+            "        worker.start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_process_provenance_through_map(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "mapped_processes.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_map_helpers_returning_threads(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "mapped_threads.py"
+    path.write_text(
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def make_thread(value):\n"
+        "    return Thread()\n"
+        "def safe(values):\n"
+        "    for worker in map(make_thread, values):\n"
+        "        worker.start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [(0, True), (1, False)],
+)
+def test_execution_scanner_resolves_static_heterogeneous_container_elements(
+    tmp_path: Path,
+    index: int,
+    expected: bool,
+) -> None:
+    path = tmp_path / "heterogeneous_process_container.py"
+    path.write_text(
+        "import multiprocessing\n"
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def check(target):\n"
+        "    items = [multiprocessing.Process(target=target), Thread()]\n"
+        f"    items[{index}].start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+    observed = any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    )
+
+    assert observed is expected, records
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "operator.methodcaller('start')(process)",
+        "operator.attrgetter('start')(process)()",
+    ],
+)
+def test_execution_scanner_recognizes_operator_process_start_invocation(
+    tmp_path: Path,
+    expression: str,
+) -> None:
+    path = tmp_path / "operator_process_start.py"
+    path.write_text(
+        "import multiprocessing\n"
+        "import operator\n"
+        "def bypass(target):\n"
+        "    process = multiprocessing.Process(target=target)\n"
+        f"    {expression}\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_operator_start_on_untrusted_receivers(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "operator_untrusted_start.py"
+    path.write_text(
+        "import operator\n"
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def safe():\n"
+        "    operator.methodcaller('start')(Thread())\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    workers = []\n"
+            "    add = workers.append\n"
+            "    add(multiprocessing.Process(target=target))\n"
+            "    workers[0].start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    workers = []\n"
+            "    extend = workers.extend\n"
+            "    add_all = extend\n"
+            "    add_all([multiprocessing.Process(target=target)])\n"
+            "    workers[0].start()\n"
+        ),
+        (
+            "import multiprocessing\n"
+            "def bypass(target):\n"
+            "    workers = []\n"
+            "    add = getattr(workers, 'append')\n"
+            "    add(multiprocessing.Process(target=target))\n"
+            "    workers[0].start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_tracks_aliased_container_mutations(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "aliased_container_mutation.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(
+        kind == "multiprocessing.Process.start" for *_, kind in records
+    ), records
+
+
+def test_execution_scanner_ignores_aliased_untrusted_container_mutations(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "aliased_untrusted_container_mutation.py"
+    path.write_text(
+        "class Thread:\n"
+        "    def start(self):\n"
+        "        return None\n"
+        "def safe():\n"
+        "    workers = []\n"
+        "    add = workers.append\n"
+        "    add(Thread())\n"
+        "    workers[0].start()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing.dummy as threads\n"
+            "def safe(target):\n"
+            "    threads.Process(target=target).start()\n"
+        ),
+        (
+            "from multiprocessing.dummy import Process as Thread\n"
+            "def safe(target):\n"
+            "    Thread(target=target).start()\n"
+        ),
+        (
+            "import multiprocessing.dummy\n"
+            "def safe(target):\n"
+            "    multiprocessing.dummy.Process(target=target).start()\n"
+        ),
+        (
+            "import multiprocessing.dummy as threads\n"
+            "class Worker(threads.Process):\n"
+            "    pass\n"
+            "def safe(target):\n"
+            "    Worker(target=target).start()\n"
+        ),
+    ],
+)
+def test_execution_scanner_excludes_multiprocessing_dummy_threads(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "multiprocessing_dummy.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import multiprocessing\n"
+            "def safe(target):\n"
+            "    return multiprocessing.Process(target=target)\n"
+        ),
+        (
+            "from multiprocessing import Process as Worker\n"
+            "def safe(target):\n"
+            "    return Worker(target=target)\n"
+        ),
+    ],
+)
+def test_execution_scanner_does_not_count_process_construction_as_launch(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "multiprocessing_construction.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("multiprocessing.") for *_, kind in records)
 
 
 @pytest.mark.parametrize(

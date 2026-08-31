@@ -287,9 +287,19 @@ _PATH_ARGUMENT_NAMES = frozenset(
         "artifact_manifest_path",
         "bitstream_path",
         "bundle_dir",
+        "directories",
+        "directory",
         "diagnostic_manifest_path",
+        "dir",
+        "dirs",
+        "file",
+        "files",
+        "folder",
+        "folders",
         "manifest_path",
         "output_dir",
+        "path",
+        "paths",
         "project_dir",
         "project_path",
         "report_dir",
@@ -4060,7 +4070,20 @@ del _CANONICAL_AUTHORITY_RUNTIME
 def _is_path_argument_name(name: str) -> bool:
     normalized = name.lower()
     return normalized in _PATH_ARGUMENT_NAMES or normalized.endswith(
-        ("_path", "_paths", "_dir", "_dirs", "_files")
+        (
+            "_path",
+            "_paths",
+            "_dir",
+            "_dirs",
+            "_directory",
+            "_directories",
+            "_file",
+            "_files",
+            "_folder",
+            "_folders",
+            "_root",
+            "_roots",
+        )
     )
 
 
