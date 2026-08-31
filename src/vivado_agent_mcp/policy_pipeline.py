@@ -4065,6 +4065,118 @@ def _is_path_argument_name(name: str) -> bool:
 
 
 def _input_schema_requires_path_boundary(schema: Mapping[str, Any]) -> bool:
+    all_of_neutral_keywords = {"if", "then", "else", "not"}
+    all_of_annotation_keywords = {
+        "$anchor",
+        "$comment",
+        "$dynamicAnchor",
+        "$id",
+        "$schema",
+        "default",
+        "deprecated",
+        "description",
+        "examples",
+        "readOnly",
+        "title",
+        "writeOnly",
+    }
+    scalar_constraint_keywords = {
+        "contentEncoding",
+        "contentMediaType",
+        "contentSchema",
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "format",
+        "maxLength",
+        "maximum",
+        "minLength",
+        "minimum",
+        "multipleOf",
+        "pattern",
+    }
+    general_applicator_keywords = {
+        "$dynamicRef",
+        "$recursiveRef",
+        "$ref",
+        "allOf",
+        "anyOf",
+        "else",
+        "if",
+        "not",
+        "oneOf",
+        "then",
+    }
+
+    def neutral_all_of_branch(candidate: Any) -> bool:
+        if candidate is True:
+            return True
+        if not isinstance(candidate, Mapping):
+            return False
+        if not candidate:
+            return True
+        if candidate.get("not") is True:
+            return False
+        if (
+            candidate.get("if") is True
+            and candidate.get("then") is False
+        ) or (
+            candidate.get("if") is False
+            and candidate.get("else") is False
+        ):
+            return False
+        meaningful = set(candidate) - all_of_annotation_keywords
+        if meaningful == {"propertyNames"}:
+            return candidate.get("propertyNames") is True
+        return bool(meaningful) and meaningful <= all_of_neutral_keywords and all(
+            type(candidate.get(key)) is bool for key in meaningful
+        )
+
+    def fixed_json_value_requires_path_boundary(value: Any) -> bool:
+        pending = [value]
+        visited = 0
+        while pending:
+            visited += 1
+            if visited > 4_096:
+                return True
+            candidate = pending.pop()
+            if isinstance(candidate, Mapping):
+                for key, child in candidate.items():
+                    if type(key) is not str or _is_path_argument_name(key):
+                        return True
+                    pending.append(child)
+                continue
+            if isinstance(candidate, Sequence) and not isinstance(
+                candidate,
+                (str, bytes, bytearray),
+            ):
+                pending.extend(candidate)
+        return False
+
+    def subschema_may_accept_path(value: Any) -> bool:
+        if value is False:
+            return False
+        if value is True:
+            return True
+        if isinstance(value, Mapping):
+            return _input_schema_requires_path_boundary(value)
+        return True
+
+    def conditional_branch_may_accept_path(
+        base_schema: Mapping[str, Any],
+        branch_schema: Any,
+    ) -> bool:
+        if branch_schema is False:
+            return False
+        if branch_schema is True:
+            return subschema_may_accept_path(base_schema)
+        if not isinstance(branch_schema, Mapping):
+            return True
+        if not base_schema:
+            return subschema_may_accept_path(branch_schema)
+        return subschema_may_accept_path(
+            {"allOf": [base_schema, branch_schema]}
+        )
+
     stack: list[Any] = [schema]
     visited_nodes = 0
     while stack:
@@ -4080,42 +4192,241 @@ def _input_schema_requires_path_boundary(schema: Mapping[str, Any]) -> bool:
             continue
         if not node:
             return True
+        all_of_children = node.get("allOf")
+        if isinstance(all_of_children, (list, tuple)) and all(
+            type(child) is bool or isinstance(child, Mapping)
+            for child in all_of_children
+        ):
+            if any(child is False for child in all_of_children):
+                continue
+            substantive_children = [
+                child
+                for child in all_of_children
+                if not neutral_all_of_branch(child)
+            ]
+            if not substantive_children:
+                stack.append(
+                    {
+                        key: value
+                        for key, value in node.items()
+                        if key != "allOf"
+                    }
+                )
+                continue
+            if len(substantive_children) != len(all_of_children):
+                node = {**node, "allOf": substantive_children}
+                all_of_children = substantive_children
+            combined_node = {
+                key: value for key, value in node.items() if key != "allOf"
+            }
+            mergeable = not (
+                set(combined_node) & all_of_neutral_keywords
+            ) and not any(
+                isinstance(child, Mapping)
+                and bool(set(child) & all_of_neutral_keywords)
+                for child in all_of_children
+            )
+            for child in all_of_children:
+                if child is True or not child:
+                    continue
+                assert isinstance(child, Mapping)
+                if set(combined_node) & set(child):
+                    mergeable = False
+                    break
+                combined_node.update(child)
+            if mergeable:
+                stack.append(combined_node)
+                continue
+        if node.get("not") is True:
+            continue
+        negated_schema = node.get("not")
+        if isinstance(negated_schema, Mapping):
+            if not negated_schema:
+                continue
+            return True
+        if "if" in node and ("then" in node or "else" in node):
+            condition = node.get("if")
+            if not (type(condition) is bool or isinstance(condition, Mapping)):
+                return True
+            base_schema = {
+                key: value
+                for key, value in node.items()
+                if key not in {"if", "then", "else"}
+            }
+            then_schema = node.get("then", True)
+            else_schema = node.get("else", True)
+            if condition is True or (
+                isinstance(condition, Mapping) and not condition
+            ):
+                if conditional_branch_may_accept_path(base_schema, then_schema):
+                    return True
+                continue
+            if condition is False:
+                if conditional_branch_may_accept_path(base_schema, else_schema):
+                    return True
+                continue
+            if conditional_branch_may_accept_path(
+                base_schema,
+                then_schema,
+            ) or conditional_branch_may_accept_path(base_schema, else_schema):
+                return True
+            continue
+
+        neutral_boolean_keywords = {
+            key
+            for key in ("if", "then", "else", "not", "propertyNames")
+            if type(node.get(key)) is bool
+        }
+        annotation_keywords = {
+            "$anchor",
+            "$comment",
+            "$dynamicAnchor",
+            "$id",
+            "$schema",
+            "default",
+            "deprecated",
+            "description",
+            "examples",
+            "readOnly",
+            "title",
+            "writeOnly",
+        }
+        noop_validation_keywords: set[str] = set()
+        inactive_conditional_keywords: set[str] = set()
+        if "if" in node and "then" not in node and "else" not in node:
+            inactive_conditional_keywords.add("if")
+        if "if" not in node:
+            inactive_conditional_keywords.update(
+                key for key in ("then", "else") if key in node
+            )
+        noop_validation_keywords.update(inactive_conditional_keywords)
+        if node.get("required") in ([], ()):
+            noop_validation_keywords.add("required")
+        for key in ("minContains", "minItems", "minLength", "minProperties"):
+            if node.get(key) == 0:
+                noop_validation_keywords.add(key)
+        if node.get("uniqueItems") is False:
+            noop_validation_keywords.add("uniqueItems")
+        for key in (
+            "dependencies",
+            "dependentRequired",
+            "dependentSchemas",
+            "patternProperties",
+            "properties",
+        ):
+            if node.get(key) == {}:
+                noop_validation_keywords.add(key)
+        if node.get("allOf") in ([], ()):
+            noop_validation_keywords.add("allOf")
+        if not (
+            set(node)
+            - neutral_boolean_keywords
+            - annotation_keywords
+            - noop_validation_keywords
+        ):
+            return True
+
+        if "const" in node:
+            if fixed_json_value_requires_path_boundary(node.get("const")):
+                return True
+            continue
+        enum_values = node.get("enum")
+        if (
+            isinstance(enum_values, Sequence)
+            and not isinstance(enum_values, (str, bytes, bytearray))
+        ):
+            if any(
+                fixed_json_value_requires_path_boundary(value)
+                for value in enum_values
+            ):
+                return True
+            continue
 
         declared_type = node.get("type")
-        object_schema = (
-            declared_type == "object"
+        declared_object_type = declared_type == "object" or (
+            isinstance(declared_type, Sequence)
+            and not isinstance(declared_type, (str, bytes, bytearray))
+            and "object" in declared_type
+        )
+        declared_array_type = declared_type == "array" or (
+            isinstance(declared_type, Sequence)
+            and not isinstance(declared_type, (str, bytes, bytearray))
+            and "array" in declared_type
+        )
+        object_instances_possible = declared_type is None or declared_object_type
+        array_instances_possible = declared_type is None or declared_array_type
+        object_forces_empty = (
+            node.get("propertyNames") is False
             or (
-                isinstance(declared_type, Sequence)
-                and not isinstance(declared_type, (str, bytes, bytearray))
-                and "object" in declared_type
+                type(node.get("maxProperties")) is int
+                and node.get("maxProperties") <= 0
             )
-            or any(
-                key in node
-                for key in (
-                    "properties",
-                    "patternProperties",
-                    "additionalProperties",
+        )
+        if (
+            object_forces_empty
+            and declared_type is not None
+            and not declared_array_type
+        ):
+            continue
+        object_properties_reachable = (
+            object_instances_possible and not object_forces_empty
+        )
+        object_schema = (
+            declared_object_type
+            or (
+                declared_type is None
+                and any(
+                    key in node
+                    for key in (
+                        "dependencies",
+                        "dependentRequired",
+                        "dependentSchemas",
+                        "maxProperties",
+                        "minProperties",
+                        "properties",
+                        "patternProperties",
+                        "additionalProperties",
+                        "propertyNames",
+                        "required",
+                        "unevaluatedProperties",
+                    )
                 )
             )
         )
-        if object_schema and "additionalProperties" not in node:
+        if (
+            object_schema
+            and object_properties_reachable
+            and "additionalProperties" not in node
+            and "unevaluatedProperties" not in node
+        ):
             return True
 
         properties = node.get("properties")
-        if isinstance(properties, Mapping):
+        if object_properties_reachable and isinstance(properties, Mapping):
             for name, child in properties.items():
                 if type(name) is not str or _is_path_argument_name(name):
                     return True
                 stack.append(child)
 
         pattern_properties = node.get("patternProperties")
-        if isinstance(pattern_properties, Mapping) and pattern_properties:
+        if (
+            object_properties_reachable
+            and isinstance(pattern_properties, Mapping)
+            and pattern_properties
+        ):
             return True
 
         additional_properties = node.get("additionalProperties")
-        if additional_properties is True or isinstance(
-            additional_properties,
-            Mapping,
+        if object_properties_reachable and (
+            additional_properties is True
+            or isinstance(additional_properties, Mapping)
+        ):
+            return True
+        unevaluated_properties = node.get("unevaluatedProperties")
+        if (
+            object_properties_reachable
+            and unevaluated_properties is True
+            and "additionalProperties" not in node
         ):
             return True
 
@@ -4128,30 +4439,218 @@ def _input_schema_requires_path_boundary(schema: Mapping[str, Any]) -> bool:
         ):
             return True
 
-        for key in (
-            "items",
+        array_keywords = {
             "contains",
-            "not",
-            "if",
-            "then",
-            "else",
-            "propertyNames",
+            "items",
+            "maxContains",
+            "maxItems",
+            "minContains",
+            "minItems",
+            "prefixItems",
             "unevaluatedItems",
+            "uniqueItems",
+        }
+        object_constraint_keywords = {
+            "additionalProperties",
+            "maxProperties",
+            "minProperties",
+            "patternProperties",
+            "properties",
+            "propertyNames",
+            "required",
             "unevaluatedProperties",
+        }
+        object_is_open = object_schema and object_properties_reachable and (
+            "additionalProperties" not in node
+            and "unevaluatedProperties" not in node
+        )
+        if (
+            declared_type is None
+            and not object_schema
+            and any(key in node for key in scalar_constraint_keywords)
+            and not any(key in node for key in general_applicator_keywords)
         ):
+            return True
+        if (
+            declared_type is None
+            and any(key in node for key in array_keywords)
+            and (
+                object_is_open
+                or not any(key in node for key in object_constraint_keywords)
+            )
+        ):
+            return True
+
+        max_items = node.get("maxItems")
+        contains_schema = node.get("contains")
+        max_contains = node.get("maxContains")
+        contains_forces_empty = (
+            contains_schema is True
+            and type(max_contains) is int
+            and max_contains <= 0
+        )
+        prefix_items = node.get("prefixItems")
+        prefix_item_count = (
+            len(prefix_items) if isinstance(prefix_items, (list, tuple)) else 0
+        )
+        first_false_prefix = next(
+            (
+                index
+                for index, child in enumerate(prefix_items)
+                if child is False
+            ),
+            None,
+        ) if isinstance(prefix_items, (list, tuple)) else None
+        values_possible = not (
+            (type(max_items) is int and max_items <= 0)
+            or contains_forces_empty
+            or first_false_prefix == 0
+        )
+        tail_bounded_by_prefix = (
+            type(max_items) is int and max_items <= prefix_item_count
+        ) or first_false_prefix is not None
+        min_contains = node.get("minContains", 1)
+        min_items = node.get("minItems", 0)
+        array_cardinality_is_unsatisfiable = (
+            type(min_items) is int
+            and type(max_items) is int
+            and min_items > max_items
+        )
+        contains_is_unsatisfiable = contains_schema is False and not (
+            type(min_contains) is int and min_contains <= 0
+        )
+        contains_bounds_are_unsatisfiable = (
+            "contains" in node
+            and type(min_contains) is int
+            and type(max_contains) is int
+            and min_contains > max_contains
+        )
+        array_is_unsatisfiable = (
+            contains_is_unsatisfiable
+            or contains_bounds_are_unsatisfiable
+            or array_cardinality_is_unsatisfiable
+        )
+        if array_is_unsatisfiable:
+            array_instances_possible = False
+            if declared_array_type and not declared_object_type:
+                continue
+        unevaluated_items = node.get("unevaluatedItems")
+        array_tail_reachable = (
+            "items" not in node
+            and values_possible
+            and not tail_bounded_by_prefix
+        )
+        open_array_tail = (
+            array_tail_reachable
+            and (
+                unevaluated_items is None
+                or unevaluated_items is True
+                or contains_schema is True
+            )
+        )
+        if (
+            array_instances_possible
+            and (
+                declared_array_type
+                or (declared_type is None and object_schema)
+            )
+        ) and open_array_tail:
+            return True
+
+        items_schema = node.get("items")
+        if (
+            array_instances_possible
+            and items_schema is True
+            and values_possible
+            and not tail_bounded_by_prefix
+        ):
+            return True
+        if (
+            array_instances_possible
+            and values_possible
+            and not tail_bounded_by_prefix
+            and isinstance(items_schema, Mapping)
+        ):
+            stack.append(items_schema)
+
+        contains_can_match = not (
+            type(max_contains) is int and max_contains <= 0
+        )
+        if (
+            array_instances_possible
+            and contains_schema is True
+            and open_array_tail
+            and contains_can_match
+        ):
+            return True
+        if (
+            array_instances_possible
+            and values_possible
+            and contains_can_match
+            and isinstance(contains_schema, Mapping)
+        ):
+            stack.append(contains_schema)
+
+        if array_instances_possible and unevaluated_items is True and open_array_tail:
+            return True
+        if (
+            array_instances_possible
+            and array_tail_reachable
+            and isinstance(unevaluated_items, Mapping)
+        ):
+            stack.append(unevaluated_items)
+
+        if (
+            object_properties_reachable
+            and "additionalProperties" not in node
+            and isinstance(
+                unevaluated_properties,
+                Mapping,
+            )
+        ):
+            return True
+
+        for key in ("not", "if", "then", "else"):
+            if key in inactive_conditional_keywords:
+                continue
             child = node.get(key)
             if isinstance(child, Mapping):
                 stack.append(child)
 
-        for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
+        property_names = node.get("propertyNames")
+        if object_properties_reachable and isinstance(property_names, Mapping):
+            stack.append(property_names)
+
+        for key in ("allOf", "anyOf", "oneOf"):
             children = node.get(key)
             if isinstance(children, (list, tuple)):
                 stack.extend(children)
 
-        for key in ("$defs", "definitions", "dependencies", "dependentSchemas"):
+        if array_instances_possible and values_possible:
+            prefix_children = node.get("prefixItems")
+            if isinstance(prefix_children, (list, tuple)):
+                reachable_prefix_count = len(prefix_children)
+                if type(max_items) is int:
+                    reachable_prefix_count = max(
+                        0,
+                        min(reachable_prefix_count, max_items),
+                    )
+                if first_false_prefix is not None:
+                    reachable_prefix_count = min(
+                        reachable_prefix_count,
+                        first_false_prefix,
+                    )
+                stack.extend(prefix_children[:reachable_prefix_count])
+
+        for key in ("$defs", "definitions"):
             children = node.get(key)
             if isinstance(children, Mapping):
                 stack.extend(children.values())
+        if object_properties_reachable:
+            for key in ("dependencies", "dependentSchemas"):
+                children = node.get(key)
+                if isinstance(children, Mapping):
+                    stack.extend(children.values())
     return False
 
 

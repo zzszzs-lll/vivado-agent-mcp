@@ -4,7 +4,7 @@ import ast
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pytest
@@ -37,6 +37,12 @@ SUBPROCESS_CALL_NAMES = {
     "getstatusoutput",
 }
 OS_PROCESS_CALL_NAMES = {"fork", "forkpty", "system", "popen", "startfile"}
+ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES = {
+    "_make_subprocess_transport",
+    "subprocess_exec",
+    "subprocess_shell",
+}
+DYNAMIC_ATTRIBUTE_CALLABLE_KIND = "dynamic_attribute_callable"
 PTY_PROCESS_CALL_NAMES = {"fork", "spawn"}
 PLATFORM_PROCESS_MODULES = frozenset({"os", "posix", "nt"})
 VALUE_FLOW_METHOD_NAMES = {
@@ -94,6 +100,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
         operator_shadow_stack: list[set[str]] = [set()]
         operator_transform_alias_stack: list[dict[str, str]] = [{}]
         operator_transform_shadow_stack: list[set[str]] = [set()]
+        functools_alias_stack: list[set[str]] = [set()]
+        functools_shadow_stack: list[set[str]] = [set()]
+        functools_partial_alias_stack: list[set[str]] = [set()]
+        functools_partial_shadow_stack: list[set[str]] = [set()]
         qualified_vars_alias_stack: list[set[str]] = [set()]
         qualified_vars_exact_shadow_stack: list[set[str]] = [set()]
         qualified_vars_prefix_shadow_stack: list[set[str]] = [set()]
@@ -111,6 +121,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             "subprocess": {"subprocess"},
             "os": {"os"},
             "asyncio": {"asyncio", "asyncio.subprocess"},
+            "asyncio_runner": set(),
+            "asyncio_task": set(),
             "pty": {"pty"},
             "posix": {"posix"},
             "nt": {"nt"},
@@ -124,6 +136,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
         module_registry_aliases: set[str] = set()
         operator_aliases = {"operator"}
         operator_transform_aliases: dict[str, str] = {}
+        functools_aliases = {"functools"}
+        functools_cached_property_aliases: set[str] = set()
+        functools_partial_aliases: set[str] = set()
         for node in tree.body:
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -137,9 +152,13 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         sys_aliases.add(alias.asname or "sys")
                     if alias.name == "operator":
                         operator_aliases.add(alias.asname or "operator")
+                    if alias.name == "functools":
+                        functools_aliases.add(alias.asname or "functools")
                     module_kind = _imported_process_module_kind(alias.name)
                     if module_kind:
-                        module_aliases[module_kind].add(alias.asname or module_kind)
+                        module_aliases[module_kind].add(alias.asname or alias.name)
+                        if alias.asname is None:
+                            module_aliases[module_kind].add(module_kind)
             elif isinstance(node, ast.ImportFrom):
                 for alias in node.names:
                     if node.module == "importlib" and alias.name == "import_module":
@@ -158,11 +177,28 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         operator_transform_aliases[alias.asname or alias.name] = (
                             alias.name
                         )
+                    if (
+                        node.level == 0
+                        and node.module == "functools"
+                        and alias.name == "cached_property"
+                    ):
+                        functools_cached_property_aliases.add(
+                            alias.asname or alias.name
+                        )
+                    if (
+                        node.level == 0
+                        and node.module == "functools"
+                        and alias.name == "partial"
+                    ):
+                        functools_partial_aliases.add(alias.asname or alias.name)
                     if node.module == "builtins" and alias.name in {"eval", "exec"}:
                         function_aliases[alias.asname or alias.name] = (
                             f"dynamic_code.{alias.name}"
                         )
-                    if node.module == "asyncio" and alias.name == "subprocess":
+                    if node.module == "asyncio" and alias.name in {
+                        "events",
+                        "subprocess",
+                    }:
                         module_aliases["asyncio"].add(alias.asname or alias.name)
                         continue
                     module_kind = _imported_process_module_kind(node.module)
@@ -171,10 +207,1987 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             f"{module_kind}.{alias.name}"
                         )
 
+        parent_nodes: dict[ast.AST, ast.AST] = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+
+        def qualified_scope_reference(node: ast.AST) -> str:
+            names: list[str] = []
+            current: ast.AST | None = node
+            while current is not None:
+                if isinstance(
+                    current,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+                ):
+                    names.append(current.name)
+                current = parent_nodes.get(current)
+            return ".".join(reversed(names))
+
+        def callback_reference_candidates(
+            reference: str,
+            context: ast.AST | None,
+        ) -> tuple[str, ...]:
+            candidates: list[str] = []
+            enclosing_function_seen = False
+            current = parent_nodes.get(context) if context is not None else None
+            while current is not None:
+                if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    candidates.append(
+                        f"{qualified_scope_reference(current)}.{reference}"
+                    )
+                    enclosing_function_seen = True
+                elif isinstance(current, ast.ClassDef) and not enclosing_function_seen:
+                    candidates.append(
+                        f"{qualified_scope_reference(current)}.{reference}"
+                    )
+                current = parent_nodes.get(current)
+            candidates.append(reference)
+            return tuple(dict.fromkeys(candidates))
+
+        def callback_binding_reference(reference: str, context: ast.AST) -> str:
+            if "." in reference:
+                return reference
+            current = parent_nodes.get(context)
+            while current is not None:
+                if isinstance(
+                    current,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+                ):
+                    return f"{qualified_scope_reference(current)}.{reference}"
+                current = parent_nodes.get(current)
+            return reference
+
+        def invoked_inline_lambda_parameter_positions(
+            value: ast.AST | None,
+            operator_call_resolver: Callable[[ast.AST | None], bool],
+        ) -> set[int]:
+            if not isinstance(value, ast.Lambda):
+                return set()
+            positional_parameters = [
+                *value.args.posonlyargs,
+                *value.args.args,
+            ]
+            aliases: dict[str, set[int]] = {
+                parameter.arg: {index}
+                for index, parameter in enumerate(positional_parameters)
+            }
+
+            def referenced_positions(candidate: ast.AST | None) -> set[int]:
+                if isinstance(candidate, ast.Name):
+                    return set(aliases.get(candidate.id, set()))
+                if isinstance(candidate, ast.Attribute):
+                    reference = _dotted_name(candidate)
+                    direct = aliases.get(reference or "", set())
+                    if direct:
+                        return set(direct)
+                    if candidate.attr == "__call__":
+                        return referenced_positions(candidate.value)
+                    return set()
+                if isinstance(candidate, ast.NamedExpr):
+                    return referenced_positions(candidate.value)
+                if isinstance(candidate, ast.IfExp):
+                    return referenced_positions(
+                        candidate.body
+                    ) | referenced_positions(candidate.orelse)
+                if isinstance(candidate, ast.BoolOp):
+                    return set().union(
+                        *(referenced_positions(item) for item in candidate.values)
+                    )
+                if isinstance(candidate, (ast.List, ast.Tuple, ast.Set)):
+                    return set().union(
+                        *(referenced_positions(item) for item in candidate.elts)
+                    )
+                if isinstance(candidate, ast.Dict):
+                    return set().union(
+                        *(
+                            referenced_positions(item)
+                            for item in (*candidate.keys, *candidate.values)
+                            if item is not None
+                        )
+                    )
+                if isinstance(candidate, (ast.Await, ast.Yield, ast.YieldFrom)):
+                    return referenced_positions(candidate.value)
+                if isinstance(candidate, ast.Subscript):
+                    return referenced_positions(candidate.value)
+                return set()
+
+            changed = True
+            while changed:
+                changed = False
+                for candidate in ast.walk(value.body):
+                    if not isinstance(candidate, ast.NamedExpr):
+                        continue
+                    target_reference = _dotted_name(candidate.target)
+                    if target_reference is None:
+                        continue
+                    positions = referenced_positions(candidate.value)
+                    previous = aliases.setdefault(target_reference, set())
+                    new_positions = positions - previous
+                    if new_positions:
+                        previous.update(new_positions)
+                        changed = True
+
+            invoked_positions: set[int] = set()
+            pending = [value.body]
+            while pending:
+                candidate = pending.pop()
+                if isinstance(candidate, ast.Lambda):
+                    continue
+                if isinstance(candidate, ast.Call):
+                    if operator_call_resolver(candidate.func) and candidate.args:
+                        invoked_positions.update(
+                            referenced_positions(candidate.args[0])
+                        )
+                    invoked_reference = _dotted_name(candidate.func)
+                    if (
+                        isinstance(candidate.func, ast.Attribute)
+                        and candidate.func.attr == "__call__"
+                    ):
+                        invoked_reference = _dotted_name(candidate.func.value)
+                    if invoked_reference is not None:
+                        invoked_positions.update(
+                            aliases.get(invoked_reference, set())
+                        )
+                pending.extend(ast.iter_child_nodes(candidate))
+            return invoked_positions
+
+        callback_parameter_positions: dict[str, set[int]] = {}
+        callback_parameter_names: dict[str, set[str]] = {}
+        callback_projected_keyword_names: dict[str, set[str]] = {}
+        event_loop_receiver_parameter_positions: dict[
+            str,
+            dict[int, set[str]],
+        ] = {}
+        event_loop_receiver_parameter_names: dict[
+            str,
+            dict[str, set[str]],
+        ] = {}
+        helper_parameter_positions: dict[str, dict[str, int]] = {}
+        helper_call_argument_sources: dict[
+            str,
+            list[
+                tuple[
+                    ast.Call,
+                    tuple[set[str], ...],
+                    dict[str, set[str]],
+                    set[str],
+                    set[str],
+                ]
+            ],
+        ] = {}
+        helper_returned_calls: dict[str, set[ast.Call]] = {}
+        returned_parameter_positions: dict[str, set[int]] = {}
+        returned_parameter_names: dict[str, set[str]] = {}
+        event_loop_property_return_values: dict[str, tuple[ast.AST, ...]] = {}
+        callback_receiver_kinds: dict[str, str] = {}
+        helper_definitions: list[
+            tuple[ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda, str]
+        ] = [
+            (definition, qualified_scope_reference(definition))
+            for definition in ast.walk(tree)
+            if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        for binding in ast.walk(tree):
+            targets: list[ast.AST] = []
+            value: ast.AST | None = None
+            if isinstance(binding, ast.Assign):
+                targets = list(binding.targets)
+                value = binding.value
+            elif isinstance(binding, ast.AnnAssign):
+                targets = [binding.target]
+                value = binding.value
+            elif isinstance(binding, ast.NamedExpr):
+                targets = [binding.target]
+                value = binding.value
+            if not isinstance(value, ast.Lambda):
+                continue
+            for target in targets:
+                reference = _dotted_name(target)
+                if reference is not None:
+                    helper_definitions.append(
+                        (
+                            value,
+                            callback_binding_reference(reference, binding),
+                        )
+                    )
+
+        def bound_identifiers(target: ast.AST) -> set[str]:
+            if isinstance(target, ast.Name):
+                return {target.id}
+            if isinstance(target, (ast.Tuple, ast.List)):
+                return set().union(
+                    *(bound_identifiers(item) for item in target.elts)
+                )
+            if isinstance(target, ast.Starred):
+                return bound_identifiers(target.value)
+            return set()
+
+        def callback_executor_scope_info(
+            scope: ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+        ) -> tuple[
+            set[str],
+            set[str],
+            set[str],
+            set[str],
+            set[str],
+            set[str],
+            set[str],
+            set[str],
+            set[str],
+            set[str],
+        ]:
+            bound: set[str] = set()
+            executor_names: set[str] = set()
+            map_names: set[str] = set()
+            itertools_names: set[str] = set()
+            functools_names: set[str] = set()
+            builtins_names: set[str] = set()
+            dict_names: set[str] = set()
+            operator_call_names: set[str] = set()
+            operator_names: set[str] = set()
+            secondary_executor_names: set[str] = set()
+            if isinstance(scope, ast.Module):
+                pending: list[ast.AST] = list(scope.body)
+            elif isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                pending = list(scope.body)
+                bound.update(
+                    parameter.arg
+                    for parameter in (
+                        *scope.args.posonlyargs,
+                        *scope.args.args,
+                        *scope.args.kwonlyargs,
+                    )
+                )
+                if scope.args.vararg is not None:
+                    bound.add(scope.args.vararg.arg)
+                if scope.args.kwarg is not None:
+                    bound.add(scope.args.kwarg.arg)
+            else:
+                pending = [scope.body]
+                bound.update(
+                    parameter.arg
+                    for parameter in (
+                        *scope.args.posonlyargs,
+                        *scope.args.args,
+                        *scope.args.kwonlyargs,
+                    )
+                )
+                if scope.args.vararg is not None:
+                    bound.add(scope.args.vararg.arg)
+                if scope.args.kwarg is not None:
+                    bound.add(scope.args.kwarg.arg)
+
+            while pending:
+                candidate = pending.pop()
+                if isinstance(
+                    candidate,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+                ):
+                    bound.add(candidate.name)
+                    continue
+                if isinstance(candidate, ast.Lambda):
+                    continue
+                if isinstance(
+                    candidate,
+                    (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp),
+                ):
+                    continue
+                if isinstance(candidate, ast.Import):
+                    for alias in candidate.names:
+                        bound_name = alias.asname or alias.name.partition(".")[0]
+                        bound.add(bound_name)
+                        if alias.name == "itertools":
+                            itertools_names.add(bound_name)
+                        elif alias.name == "functools":
+                            functools_names.add(bound_name)
+                        elif alias.name == "builtins":
+                            builtins_names.add(bound_name)
+                        elif alias.name == "operator":
+                            operator_names.add(bound_name)
+                    continue
+                if isinstance(candidate, ast.ImportFrom):
+                    for alias in candidate.names:
+                        if alias.name == "*":
+                            if candidate.module == "itertools":
+                                executor_names.update(
+                                    {
+                                        "dropwhile",
+                                        "filterfalse",
+                                        "starmap",
+                                        "takewhile",
+                                    }
+                                )
+                                secondary_executor_names.update(
+                                    {"accumulate", "groupby"}
+                                )
+                            elif candidate.module == "functools":
+                                executor_names.add("reduce")
+                            elif candidate.module == "builtins":
+                                executor_names.update({"filter", "map"})
+                                map_names.add("map")
+                                dict_names.add("dict")
+                            elif candidate.module == "operator":
+                                operator_call_names.add("call")
+                            continue
+                        bound_name = alias.asname or alias.name
+                        bound.add(bound_name)
+                        if (
+                            candidate.module == "itertools"
+                            and alias.name
+                            in {
+                                "dropwhile",
+                                "filterfalse",
+                                "starmap",
+                                "takewhile",
+                            }
+                        ) or (
+                            candidate.module == "functools"
+                            and alias.name == "reduce"
+                        ) or (
+                            candidate.module == "builtins"
+                            and alias.name in {"filter", "map"}
+                        ):
+                            executor_names.add(bound_name)
+                            if candidate.module == "builtins" and alias.name == "map":
+                                map_names.add(bound_name)
+                        if candidate.module == "operator" and alias.name == "call":
+                            operator_call_names.add(bound_name)
+                        if (
+                            candidate.module == "itertools"
+                            and alias.name in {"accumulate", "groupby"}
+                        ):
+                            secondary_executor_names.add(bound_name)
+                        if candidate.module == "builtins" and alias.name == "dict":
+                            dict_names.add(bound_name)
+                    continue
+                if isinstance(candidate, ast.Assign):
+                    for target in candidate.targets:
+                        bound.update(bound_identifiers(target))
+                    pending.append(candidate.value)
+                    continue
+                if isinstance(candidate, ast.AnnAssign):
+                    bound.update(bound_identifiers(candidate.target))
+                    if candidate.value is not None:
+                        pending.append(candidate.value)
+                    continue
+                if isinstance(candidate, ast.NamedExpr):
+                    bound.update(bound_identifiers(candidate.target))
+                    pending.append(candidate.value)
+                    continue
+                if isinstance(candidate, (ast.For, ast.AsyncFor)):
+                    bound.update(bound_identifiers(candidate.target))
+                    pending.extend([candidate.iter, *candidate.body, *candidate.orelse])
+                    continue
+                pending.extend(ast.iter_child_nodes(candidate))
+            return (
+                bound,
+                executor_names,
+                map_names,
+                itertools_names,
+                functools_names,
+                builtins_names,
+                dict_names,
+                operator_call_names,
+                operator_names,
+                secondary_executor_names,
+            )
+
+        def callback_executor_scope_chain(
+            definition: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+        ) -> tuple[
+            ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+            ...,
+        ]:
+            enclosing: list[
+                ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+            ] = []
+            current = parent_nodes.get(definition)
+            while current is not None:
+                if isinstance(
+                    current,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda),
+                ):
+                    enclosing.append(current)
+                current = parent_nodes.get(current)
+            return (tree, *reversed(enclosing), definition)
+
+        for definition, contract_reference in helper_definitions:
+            positional_parameters = [
+                *definition.args.posonlyargs,
+                *definition.args.args,
+            ]
+            parameter_positions = {
+                parameter.arg: index
+                for index, parameter in enumerate(positional_parameters)
+            }
+            if definition.args.vararg is not None:
+                parameter_positions[definition.args.vararg.arg] = len(
+                    positional_parameters
+                )
+            parameter_names = {
+                *parameter_positions,
+                *(parameter.arg for parameter in definition.args.kwonlyargs),
+                *(
+                    (definition.args.kwarg.arg,)
+                    if definition.args.kwarg is not None
+                    else ()
+                ),
+            }
+            helper_parameter_positions[contract_reference] = dict(
+                parameter_positions
+            )
+            scoped_executor_names: set[str] = set()
+            scoped_map_names: set[str] = set()
+            scoped_itertools_names: set[str] = set()
+            scoped_functools_names: set[str] = set()
+            scoped_builtins_names: set[str] = {"builtins", "__builtins__"}
+            scoped_dict_names: set[str] = set()
+            scoped_operator_call_names: set[str] = set()
+            scoped_operator_names: set[str] = set()
+            scoped_secondary_executor_names: set[str] = set()
+            shadowed_builtins: set[str] = set()
+            for scope in callback_executor_scope_chain(definition):
+                (
+                    bound_names,
+                    imported_executor_names,
+                    imported_map_names,
+                    imported_itertools_names,
+                    imported_functools_names,
+                    imported_builtins_names,
+                    imported_dict_names,
+                    imported_operator_call_names,
+                    imported_operator_names,
+                    imported_secondary_executor_names,
+                ) = callback_executor_scope_info(scope)
+                for name in bound_names:
+                    scoped_executor_names.discard(name)
+                    scoped_map_names.discard(name)
+                    scoped_itertools_names.discard(name)
+                    scoped_functools_names.discard(name)
+                    scoped_builtins_names.discard(name)
+                    scoped_dict_names.discard(name)
+                    scoped_operator_call_names.discard(name)
+                    scoped_operator_names.discard(name)
+                    scoped_secondary_executor_names.discard(name)
+                    if name in {"dict", "filter", "map"}:
+                        shadowed_builtins.add(name)
+                scoped_executor_names.update(imported_executor_names)
+                scoped_map_names.update(imported_map_names)
+                scoped_itertools_names.update(imported_itertools_names)
+                scoped_functools_names.update(imported_functools_names)
+                scoped_builtins_names.update(imported_builtins_names)
+                scoped_dict_names.update(imported_dict_names)
+                scoped_operator_call_names.update(imported_operator_call_names)
+                scoped_operator_names.update(imported_operator_names)
+                scoped_secondary_executor_names.update(
+                    imported_secondary_executor_names
+                )
+                shadowed_builtins.difference_update(
+                    (imported_executor_names & {"filter", "map"})
+                    | imported_dict_names
+                )
+
+            def current_positional_callback_executor_reference(
+                value: ast.AST | None,
+            ) -> bool:
+                reference = _dotted_name(value)
+                if reference in scoped_executor_names:
+                    return True
+                if (
+                    isinstance(value, ast.Name)
+                    and value.id in {"filter", "map"}
+                    and value.id not in shadowed_builtins
+                ):
+                    return True
+                if not isinstance(value, ast.Attribute):
+                    return False
+                owner = _dotted_name(value.value)
+                if owner in scoped_builtins_names and value.attr in {"filter", "map"}:
+                    return True
+                if owner in scoped_functools_names and value.attr == "reduce":
+                    return True
+                return owner in scoped_itertools_names and value.attr in {
+                    "dropwhile",
+                    "filterfalse",
+                    "starmap",
+                    "takewhile",
+                }
+
+            def current_builtin_map_reference(value: ast.AST | None) -> bool:
+                reference = _dotted_name(value)
+                if reference in scoped_map_names:
+                    return True
+                if (
+                    isinstance(value, ast.Name)
+                    and value.id == "map"
+                    and "map" not in shadowed_builtins
+                ):
+                    return True
+                return (
+                    isinstance(value, ast.Attribute)
+                    and value.attr == "map"
+                    and _dotted_name(value.value) in scoped_builtins_names
+                )
+
+            def current_builtin_dict_reference(value: ast.AST | None) -> bool:
+                reference = _dotted_name(value)
+                if reference in scoped_dict_names:
+                    return True
+                if (
+                    isinstance(value, ast.Name)
+                    and value.id == "dict"
+                    and "dict" not in shadowed_builtins
+                ):
+                    return True
+                return (
+                    isinstance(value, ast.Attribute)
+                    and value.attr == "dict"
+                    and _dotted_name(value.value) in scoped_builtins_names
+                )
+
+            def current_operator_call_reference(value: ast.AST | None) -> bool:
+                reference = _dotted_name(value)
+                if reference in scoped_operator_call_names:
+                    return True
+                return (
+                    isinstance(value, ast.Attribute)
+                    and value.attr == "call"
+                    and _dotted_name(value.value) in scoped_operator_names
+                )
+
+            def current_secondary_callback_arguments(
+                call: ast.Call,
+            ) -> tuple[ast.AST, ...]:
+                reference = _dotted_name(call.func)
+                secondary_executor = reference in scoped_secondary_executor_names
+                if isinstance(call.func, ast.Attribute):
+                    secondary_executor = secondary_executor or (
+                        _dotted_name(call.func.value) in scoped_itertools_names
+                        and call.func.attr in {"accumulate", "groupby"}
+                    )
+                if not secondary_executor:
+                    return ()
+                arguments: list[ast.AST] = []
+                if len(call.args) > 1:
+                    arguments.append(call.args[1])
+
+                callback_keywords = ("func", "key")
+
+                def merge_keyword_candidates(
+                    base: dict[str, tuple[ast.AST, ...]],
+                    overlay: dict[str, tuple[ast.AST, ...]],
+                    overlay_definite: frozenset[str],
+                ) -> dict[str, tuple[ast.AST, ...]]:
+                    merged = dict(base)
+                    for keyword_name in callback_keywords:
+                        if keyword_name in overlay_definite:
+                            merged[keyword_name] = overlay[keyword_name]
+                        else:
+                            merged[keyword_name] = (
+                                *merged[keyword_name],
+                                *overlay[keyword_name],
+                            )
+                    return merged
+
+                def unpacked_keyword_candidates(
+                    value: ast.AST,
+                ) -> tuple[
+                    dict[str, tuple[ast.AST, ...]],
+                    frozenset[str],
+                ]:
+                    if isinstance(value, ast.NamedExpr):
+                        return unpacked_keyword_candidates(value.value)
+                    if isinstance(value, ast.IfExp):
+                        body, body_definite = unpacked_keyword_candidates(value.body)
+                        orelse, orelse_definite = unpacked_keyword_candidates(
+                            value.orelse
+                        )
+                        return (
+                            {
+                                keyword_name: (
+                                    *body[keyword_name],
+                                    *orelse[keyword_name],
+                                )
+                                for keyword_name in callback_keywords
+                            },
+                            body_definite & orelse_definite,
+                        )
+                    if isinstance(value, ast.BoolOp):
+                        branches = [
+                            unpacked_keyword_candidates(candidate)
+                            for candidate in value.values
+                        ]
+                        definite = set(callback_keywords)
+                        for _, branch_definite in branches:
+                            definite.intersection_update(branch_definite)
+                        return (
+                            {
+                                keyword_name: tuple(
+                                    item
+                                    for branch, _ in branches
+                                    for item in branch[keyword_name]
+                                )
+                                for keyword_name in callback_keywords
+                            },
+                            frozenset(definite),
+                        )
+                    if isinstance(value, ast.BinOp) and isinstance(
+                        value.op,
+                        ast.BitOr,
+                    ):
+                        left, left_definite = unpacked_keyword_candidates(value.left)
+                        right, right_definite = unpacked_keyword_candidates(value.right)
+                        return (
+                            merge_keyword_candidates(left, right, right_definite),
+                            left_definite | right_definite,
+                        )
+                    if isinstance(value, ast.Dict):
+                        matched = {
+                            keyword_name: () for keyword_name in callback_keywords
+                        }
+                        definite: set[str] = set()
+                        for key, item in zip(
+                            value.keys,
+                            value.values,
+                            strict=True,
+                        ):
+                            if key is None:
+                                overlay, overlay_definite = (
+                                    unpacked_keyword_candidates(item)
+                                )
+                                matched = merge_keyword_candidates(
+                                    matched,
+                                    overlay,
+                                    overlay_definite,
+                                )
+                                definite.update(overlay_definite)
+                                continue
+                            static_key = _static_string_value(key)
+                            if static_key in callback_keywords:
+                                matched[static_key] = (item,)
+                                definite.add(static_key)
+                            elif static_key is None:
+                                for keyword_name in callback_keywords:
+                                    matched[keyword_name] = (
+                                        *matched[keyword_name],
+                                        item,
+                                    )
+                        return matched, frozenset(definite)
+                    if (
+                        isinstance(value, ast.Call)
+                        and current_builtin_dict_reference(value.func)
+                    ):
+                        matched = {
+                            keyword_name: () for keyword_name in callback_keywords
+                        }
+                        definite: set[str] = set()
+                        for argument in value.args:
+                            overlay, overlay_definite = (
+                                unpacked_keyword_candidates(argument)
+                            )
+                            matched = merge_keyword_candidates(
+                                matched,
+                                overlay,
+                                overlay_definite,
+                            )
+                            definite.update(overlay_definite)
+                        for keyword in value.keywords:
+                            if keyword.arg in callback_keywords:
+                                matched[keyword.arg] = (keyword.value,)
+                                definite.add(keyword.arg)
+                            elif keyword.arg is None:
+                                overlay, overlay_definite = (
+                                    unpacked_keyword_candidates(keyword.value)
+                                )
+                                matched = merge_keyword_candidates(
+                                    matched,
+                                    overlay,
+                                    overlay_definite,
+                                )
+                                definite.update(overlay_definite)
+                        return matched, frozenset(definite)
+                    return (
+                        {
+                            keyword_name: (value,)
+                            for keyword_name in callback_keywords
+                        },
+                        frozenset(),
+                    )
+
+                def unpacked_keyword_values(
+                    value: ast.AST,
+                ) -> tuple[ast.AST, ...]:
+                    candidates, _ = unpacked_keyword_candidates(value)
+                    return tuple(
+                        item
+                        for keyword_name in callback_keywords
+                        for item in candidates[keyword_name]
+                    )
+
+                for keyword in call.keywords:
+                    if keyword.arg in {"func", "key"}:
+                        arguments.append(keyword.value)
+                    elif keyword.arg is None:
+                        arguments.extend(unpacked_keyword_values(keyword.value))
+                return tuple(arguments)
+            definition_body = (
+                list(definition.body)
+                if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef))
+                else []
+            )
+            definition_expression = (
+                definition.body if isinstance(definition, ast.Lambda) else None
+            )
+            pending = [
+                *definition_body,
+                *((definition_expression,) if definition_expression is not None else ()),
+            ]
+            body_nodes: list[ast.AST] = []
+            while pending:
+                candidate = pending.pop()
+                if isinstance(
+                    candidate,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                ):
+                    continue
+                body_nodes.append(candidate)
+                pending.extend(ast.iter_child_nodes(candidate))
+            alias_sources = {
+                name: {name}
+                for name in parameter_names
+            }
+            captured_closure_sources: dict[str, set[str]] = {}
+
+            def captured_invoked_parameters(
+                nested: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+                environment: dict[str, set[str]],
+            ) -> set[str]:
+                nested_parameter_names = {
+                    *(parameter.arg for parameter in nested.args.posonlyargs),
+                    *(parameter.arg for parameter in nested.args.args),
+                    *(parameter.arg for parameter in nested.args.kwonlyargs),
+                    *((nested.args.vararg.arg,) if nested.args.vararg is not None else ()),
+                    *((nested.args.kwarg.arg,) if nested.args.kwarg is not None else ()),
+                }
+                nested_body = (
+                    list(nested.body)
+                    if isinstance(nested, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    else [nested.body]
+                )
+                nested_environment = {
+                    name: set(sources)
+                    for name, sources in environment.items()
+                    if name not in nested_parameter_names
+                }
+
+                def nested_referenced_sources(
+                    value: ast.AST | None,
+                    sources_by_name: dict[str, set[str]],
+                ) -> set[str]:
+                    if isinstance(value, ast.Name):
+                        return set(sources_by_name.get(value.id, set()))
+                    if isinstance(value, ast.Attribute):
+                        reference = _dotted_name(value)
+                        direct = sources_by_name.get(reference or "", set())
+                        if direct:
+                            return set(direct)
+                        if value.attr == "__call__":
+                            return nested_referenced_sources(
+                                value.value,
+                                sources_by_name,
+                            )
+                        return set()
+                    if isinstance(value, ast.NamedExpr):
+                        return nested_referenced_sources(
+                            value.value,
+                            sources_by_name,
+                        )
+                    if isinstance(value, ast.IfExp):
+                        return nested_referenced_sources(
+                            value.body,
+                            sources_by_name,
+                        ) | nested_referenced_sources(
+                            value.orelse,
+                            sources_by_name,
+                        )
+                    if isinstance(value, ast.BoolOp):
+                        return set().union(
+                            *(
+                                nested_referenced_sources(item, sources_by_name)
+                                for item in value.values
+                            )
+                        )
+                    if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+                        return set().union(
+                            *(
+                                nested_referenced_sources(item, sources_by_name)
+                                for item in value.elts
+                            )
+                        )
+                    if isinstance(value, ast.Dict):
+                        return set().union(
+                            *(
+                                nested_referenced_sources(item, sources_by_name)
+                                for item in (*value.keys, *value.values)
+                                if item is not None
+                            )
+                        )
+                    if isinstance(value, (ast.Await, ast.Yield, ast.YieldFrom)):
+                        return nested_referenced_sources(
+                            value.value,
+                            sources_by_name,
+                        )
+                    if isinstance(value, ast.Subscript):
+                        return nested_referenced_sources(
+                            value.value,
+                            sources_by_name,
+                        )
+                    if isinstance(value, ast.Call):
+                        return nested_referenced_sources(
+                            value.func,
+                            sources_by_name,
+                        )
+                    if isinstance(value, ast.Lambda):
+                        return captured_invoked_parameters(value, sources_by_name)
+                    return set()
+
+                def directly_nested_in_current_callable(candidate: ast.AST) -> bool:
+                    enclosing = parent_nodes.get(candidate)
+                    while enclosing is not None and not isinstance(
+                        enclosing,
+                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda),
+                    ):
+                        enclosing = parent_nodes.get(enclosing)
+                    return enclosing is nested
+
+                direct_nested_definitions = [
+                    candidate
+                    for statement in nested_body
+                    for candidate in ast.walk(statement)
+                    if isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and directly_nested_in_current_callable(candidate)
+                ]
+                for child in sorted(
+                    direct_nested_definitions,
+                    key=lambda definition: getattr(definition, "lineno", -1),
+                ):
+                    child_sources = captured_invoked_parameters(
+                        child,
+                        nested_environment,
+                    )
+                    if child_sources:
+                        nested_environment[child.name] = child_sources
+
+                def nested_sources_before(point: ast.AST) -> dict[str, set[str]]:
+                    sources_by_name = {
+                        name: set(sources)
+                        for name, sources in nested_environment.items()
+                    }
+                    for statement in nested_body:
+                        if getattr(statement, "lineno", -1) >= getattr(
+                            point,
+                            "lineno",
+                            -1,
+                        ):
+                            break
+                        targets: list[ast.AST] = []
+                        value: ast.AST | None = None
+                        if isinstance(statement, ast.Assign):
+                            targets = list(statement.targets)
+                            value = statement.value
+                        elif isinstance(statement, ast.AnnAssign):
+                            targets = [statement.target]
+                            value = statement.value
+                        if value is None:
+                            continue
+                        sources = nested_referenced_sources(
+                            value,
+                            sources_by_name,
+                        )
+                        for target in targets:
+                            target_reference = _dotted_name(target)
+                            if target_reference is not None:
+                                sources_by_name[target_reference] = set(sources)
+                    return sources_by_name
+
+                pending_nested = list(nested_body)
+                captured: set[str] = set()
+                while pending_nested:
+                    candidate = pending_nested.pop()
+                    if isinstance(
+                        candidate,
+                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                    ):
+                        continue
+                    if isinstance(candidate, ast.Call):
+                        sources_at_call = nested_sources_before(candidate)
+                        if (
+                            current_operator_call_reference(candidate.func)
+                            and candidate.args
+                        ):
+                            captured.update(
+                                nested_referenced_sources(
+                                    candidate.args[0],
+                                    sources_at_call,
+                                )
+                            )
+                        for callback_argument in current_secondary_callback_arguments(
+                            candidate
+                        ):
+                            captured.update(
+                                nested_referenced_sources(
+                                    callback_argument,
+                                    sources_at_call,
+                                )
+                            )
+                        if (
+                            current_positional_callback_executor_reference(
+                                candidate.func
+                            )
+                            and not (
+                                isinstance(candidate.func, ast.Name)
+                                and candidate.func.id in nested_parameter_names
+                            )
+                            and candidate.args
+                        ):
+                            captured.update(
+                                nested_referenced_sources(
+                                    candidate.args[0],
+                                    sources_at_call,
+                                )
+                            )
+                        if (
+                            current_builtin_map_reference(candidate.func)
+                            and not (
+                                isinstance(candidate.func, ast.Name)
+                                and candidate.func.id in nested_parameter_names
+                            )
+                            and candidate.args
+                        ):
+                            for position in invoked_inline_lambda_parameter_positions(
+                                candidate.args[0],
+                                current_operator_call_reference,
+                            ):
+                                iterable_index = position + 1
+                                if iterable_index < len(candidate.args):
+                                    captured.update(
+                                        nested_referenced_sources(
+                                            candidate.args[iterable_index],
+                                            sources_at_call,
+                                        )
+                                    )
+                        invoked_reference = _dotted_name(candidate.func)
+                        if (
+                            isinstance(candidate.func, ast.Attribute)
+                            and candidate.func.attr == "__call__"
+                        ):
+                            invoked_reference = _dotted_name(candidate.func.value)
+                        if (
+                            invoked_reference is not None
+                            and invoked_reference not in nested_parameter_names
+                        ):
+                            captured.update(
+                                sources_at_call.get(invoked_reference, set())
+                            )
+                    if isinstance(candidate, (ast.Return, ast.Yield, ast.YieldFrom)):
+                        captured.update(
+                            nested_referenced_sources(
+                                candidate.value,
+                                nested_sources_before(candidate),
+                            )
+                        )
+                    pending_nested.extend(ast.iter_child_nodes(candidate))
+                return captured
+
+            def referenced_parameters(
+                value: ast.AST | None,
+                environment: dict[str, set[str]] | None = None,
+            ) -> set[str]:
+                sources_by_name = alias_sources if environment is None else environment
+                if isinstance(value, ast.Name):
+                    return set(sources_by_name.get(value.id, set()))
+                if isinstance(value, ast.Attribute):
+                    reference = _dotted_name(value)
+                    direct = sources_by_name.get(reference or "", set())
+                    if direct:
+                        return set(direct)
+                    if value.attr == "__call__":
+                        return referenced_parameters(value.value, sources_by_name)
+                    return set()
+                if isinstance(value, ast.NamedExpr):
+                    return referenced_parameters(value.value, sources_by_name)
+                if isinstance(value, ast.IfExp):
+                    return referenced_parameters(
+                        value.body,
+                        sources_by_name,
+                    ) | referenced_parameters(
+                        value.orelse,
+                        sources_by_name,
+                    )
+                if isinstance(value, ast.BoolOp):
+                    return set().union(
+                        *(
+                            referenced_parameters(item, sources_by_name)
+                            for item in value.values
+                        )
+                    )
+                if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+                    return set().union(
+                        *(
+                            referenced_parameters(item, sources_by_name)
+                            for item in value.elts
+                        )
+                    )
+                if isinstance(value, ast.Dict):
+                    return set().union(
+                        *(
+                            referenced_parameters(item, sources_by_name)
+                            for item in (*value.keys, *value.values)
+                            if item is not None
+                        )
+                    )
+                if isinstance(value, (ast.Await, ast.Yield, ast.YieldFrom)):
+                    return referenced_parameters(value.value, sources_by_name)
+                if isinstance(value, ast.Subscript):
+                    return referenced_parameters(value.value, sources_by_name)
+                if isinstance(value, ast.Call):
+                    return referenced_parameters(value.func, sources_by_name)
+                if isinstance(value, ast.Lambda):
+                    return captured_invoked_parameters(value, sources_by_name)
+                return set()
+
+            def unconditional_sources_before(
+                point: ast.AST,
+            ) -> dict[str, set[str]]:
+                environment = {
+                    name: {name}
+                    for name in parameter_names
+                }
+                environment.update(
+                    {
+                        name: set(sources)
+                        for name, sources in captured_closure_sources.items()
+                    }
+                )
+                for statement in definition_body:
+                    if getattr(statement, "lineno", -1) >= getattr(point, "lineno", -1):
+                        break
+                    targets: list[ast.AST] = []
+                    value: ast.AST | None = None
+                    if isinstance(statement, ast.Assign):
+                        targets = list(statement.targets)
+                        value = statement.value
+                    elif isinstance(statement, ast.AnnAssign):
+                        targets = [statement.target]
+                        value = statement.value
+                    if value is None:
+                        continue
+                    sources = referenced_parameters(value, environment)
+                    for target in targets:
+                        target_reference = _dotted_name(target)
+                        if target_reference is not None:
+                            environment[target_reference] = set(sources)
+                return environment
+
+            for nested in (
+                candidate
+                for statement in definition_body
+                for candidate in ast.walk(statement)
+                if isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef))
+            ):
+                enclosing = parent_nodes.get(nested)
+                while enclosing is not None and not isinstance(
+                    enclosing,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda),
+                ):
+                    enclosing = parent_nodes.get(enclosing)
+                if enclosing is not definition:
+                    continue
+                captured = captured_invoked_parameters(
+                    nested,
+                    unconditional_sources_before(nested),
+                )
+                if captured:
+                    captured_closure_sources[nested.name] = set(captured)
+                    alias_sources[nested.name] = set(captured)
+
+            changed = True
+            while changed:
+                changed = False
+                for candidate in body_nodes:
+                    target: ast.AST | None = None
+                    value: ast.AST | None = None
+                    if isinstance(candidate, ast.Assign):
+                        if len(candidate.targets) == 1:
+                            target = candidate.targets[0]
+                            value = candidate.value
+                    elif isinstance(candidate, ast.AnnAssign):
+                        target = candidate.target
+                        value = candidate.value
+                    elif isinstance(candidate, ast.NamedExpr):
+                        target = candidate.target
+                        value = candidate.value
+                    target_reference = _dotted_name(target)
+                    if target_reference is None:
+                        continue
+                    sources = referenced_parameters(value)
+                    if not sources:
+                        continue
+                    previous = alias_sources.setdefault(target_reference, set())
+                    new_sources = sources - previous
+                    if new_sources:
+                        previous.update(new_sources)
+                        changed = True
+
+            invoked_parameters: set[str] = set()
+            invoked_projected_keywords: set[str] = set()
+            event_loop_receiver_parameters: dict[str, set[str]] = {}
+            for candidate in body_nodes:
+                if not isinstance(candidate, ast.Call):
+                    continue
+                sources_at_call = unconditional_sources_before(candidate)
+                positional_sources: list[set[str]] = []
+                starred_sources: set[str] = set()
+                for argument in candidate.args:
+                    source = referenced_parameters(
+                        argument.value
+                        if isinstance(argument, ast.Starred)
+                        else argument,
+                        sources_at_call,
+                    )
+                    positional_sources.append(source)
+                    if isinstance(argument, ast.Starred):
+                        starred_sources.update(source)
+                keyword_sources: dict[str, set[str]] = {}
+                unpacked_keyword_sources: set[str] = set()
+                for keyword in candidate.keywords:
+                    source = referenced_parameters(
+                        keyword.value,
+                        sources_at_call,
+                    )
+                    if keyword.arg is None:
+                        unpacked_keyword_sources.update(source)
+                    else:
+                        keyword_sources.setdefault(keyword.arg, set()).update(
+                            source
+                        )
+                helper_call_argument_sources.setdefault(
+                    contract_reference,
+                    [],
+                ).append(
+                    (
+                        candidate,
+                        tuple(positional_sources),
+                        keyword_sources,
+                        starred_sources,
+                        unpacked_keyword_sources,
+                    )
+                )
+                if (
+                    isinstance(candidate.func, ast.Attribute)
+                    and candidate.func.attr
+                    in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
+                ):
+                    receiver_parameters = referenced_parameters(
+                        candidate.func.value,
+                        sources_at_call,
+                    )
+                    for parameter_name in receiver_parameters:
+                        event_loop_receiver_parameters.setdefault(
+                            parameter_name,
+                            set(),
+                        ).add(f"asyncio.{candidate.func.attr}")
+                if current_operator_call_reference(candidate.func) and candidate.args:
+                    invoked_parameters.update(
+                        referenced_parameters(
+                            candidate.args[0],
+                            sources_at_call,
+                        )
+                    )
+                for callback_argument in current_secondary_callback_arguments(
+                    candidate
+                ):
+                    invoked_parameters.update(
+                        referenced_parameters(
+                            callback_argument,
+                            sources_at_call,
+                        )
+                    )
+                if (
+                    current_positional_callback_executor_reference(candidate.func)
+                    and not (
+                        isinstance(candidate.func, ast.Name)
+                        and candidate.func.id in parameter_names
+                    )
+                    and candidate.args
+                ):
+                    invoked_parameters.update(
+                        referenced_parameters(
+                            candidate.args[0],
+                            sources_at_call,
+                        )
+                    )
+                if (
+                    current_builtin_map_reference(candidate.func)
+                    and not (
+                        isinstance(candidate.func, ast.Name)
+                        and candidate.func.id in parameter_names
+                    )
+                    and candidate.args
+                ):
+                    for position in invoked_inline_lambda_parameter_positions(
+                        candidate.args[0],
+                        current_operator_call_reference,
+                    ):
+                        iterable_index = position + 1
+                        if iterable_index < len(candidate.args):
+                            invoked_parameters.update(
+                                referenced_parameters(
+                                    candidate.args[iterable_index],
+                                    sources_at_call,
+                                )
+                            )
+                invoked_reference = _dotted_name(candidate.func)
+                if (
+                    isinstance(candidate.func, ast.Attribute)
+                    and candidate.func.attr == "__call__"
+                ):
+                    invoked_reference = _dotted_name(candidate.func.value)
+                elif (
+                    isinstance(candidate.func, ast.Subscript)
+                ):
+                    invoked_reference = _dotted_name(candidate.func.value)
+                    if (
+                        definition.args.kwarg is not None
+                        and invoked_reference == definition.args.kwarg.arg
+                    ):
+                        projected_keyword = _static_string_value(
+                            candidate.func.slice
+                        )
+                        if projected_keyword is not None:
+                            invoked_projected_keywords.add(projected_keyword)
+                if invoked_reference is not None:
+                    invoked_parameters.update(
+                        sources_at_call.get(
+                            invoked_reference,
+                            alias_sources.get(invoked_reference, set()),
+                        )
+                    )
+            returned_parameters: set[str] = set()
+            for candidate in body_nodes:
+                if not isinstance(candidate, (ast.Return, ast.Yield, ast.YieldFrom)):
+                    continue
+                value = candidate.value
+                if value is None:
+                    continue
+                sources_at_return = unconditional_sources_before(candidate)
+                returned_parameters.update(
+                    referenced_parameters(value, sources_at_return)
+                )
+                helper_returned_calls.setdefault(
+                    contract_reference,
+                    set(),
+                ).update(
+                    nested
+                    for nested in ast.walk(value)
+                    if isinstance(nested, ast.Call)
+                )
+            if definition_expression is not None:
+                returned_parameters.update(
+                    referenced_parameters(
+                        definition_expression,
+                        unconditional_sources_before(definition_expression),
+                    )
+                )
+            enclosing_scope = parent_nodes.get(definition)
+            while enclosing_scope is not None and not isinstance(
+                enclosing_scope,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+            ):
+                enclosing_scope = parent_nodes.get(enclosing_scope)
+            if isinstance(definition, ast.Lambda):
+                callback_receiver_kinds[contract_reference] = "none"
+            elif isinstance(enclosing_scope, ast.ClassDef):
+                decorator_names = {
+                    _dotted_name(decorator)
+                    for decorator in definition.decorator_list
+                }
+                if any(
+                    name == "staticmethod" or name.endswith(".staticmethod")
+                    for name in decorator_names
+                    if name is not None
+                ):
+                    callback_receiver_kinds[contract_reference] = "none"
+                elif any(
+                    name == "classmethod" or name.endswith(".classmethod")
+                    for name in decorator_names
+                    if name is not None
+                ):
+                    callback_receiver_kinds[contract_reference] = "class"
+                else:
+                    callback_receiver_kinds[contract_reference] = "instance"
+            else:
+                callback_receiver_kinds[contract_reference] = "none"
+            if (
+                not invoked_parameters
+                and not invoked_projected_keywords
+                and not event_loop_receiver_parameters
+                and not returned_parameters
+            ):
+                continue
+            if invoked_parameters:
+                callback_parameter_names.setdefault(contract_reference, set()).update(
+                    invoked_parameters
+                )
+                callback_parameter_positions.setdefault(contract_reference, set()).update(
+                    parameter_positions[name]
+                    for name in invoked_parameters
+                    if name in parameter_positions
+                )
+            if invoked_projected_keywords:
+                callback_projected_keyword_names.setdefault(
+                    contract_reference,
+                    set(),
+                ).update(invoked_projected_keywords)
+            if event_loop_receiver_parameters:
+                event_loop_receiver_parameter_names[contract_reference] = {
+                    name: set(kinds)
+                    for name, kinds in event_loop_receiver_parameters.items()
+                }
+                event_loop_receiver_parameter_positions[contract_reference] = {
+                    parameter_positions[name]: set(kinds)
+                    for name, kinds in event_loop_receiver_parameters.items()
+                    if name in parameter_positions
+                }
+            if returned_parameters:
+                returned_parameter_names.setdefault(contract_reference, set()).update(
+                    returned_parameters
+                )
+                returned_parameter_positions.setdefault(contract_reference, set()).update(
+                    parameter_positions[name]
+                    for name in returned_parameters
+                    if name in parameter_positions
+                )
+
+        callback_contract_aliases: dict[str, set[str]] = {
+            contract_reference: {contract_reference}
+            for _, contract_reference in helper_definitions
+        }
+        returned_contract_aliases: dict[str, set[str]] = {
+            contract_reference: {contract_reference}
+            for _, contract_reference in helper_definitions
+        }
+        known_class_references = {
+            qualified_scope_reference(definition)
+            for definition in ast.walk(tree)
+            if isinstance(definition, ast.ClassDef)
+        }
+        contract_owner_references = {
+            owner
+            for contract in (
+                *(contract for _, contract in helper_definitions),
+                *returned_parameter_names,
+            )
+            if (owner := contract.rpartition(".")[0]) in known_class_references
+        }
+        constructor_aliases: dict[str, set[str]] = {
+            owner: {owner} for owner in contract_owner_references
+        }
+        factory_instance_aliases: dict[str, set[str]] = {}
+        constructed_instance_aliases: dict[str, set[str]] = {}
+
+        def constructor_contract_owners(
+            value: ast.AST | None,
+            *,
+            context: ast.AST | None = None,
+        ) -> set[str]:
+            reference = _dotted_name(value)
+            if reference is None:
+                return set()
+            owners: set[str] = set()
+            for candidate in callback_reference_candidates(reference, context):
+                owners.update(constructor_aliases.get(candidate, set()))
+            return owners
+
+        def factory_contract_owners(
+            value: ast.AST | None,
+            *,
+            context: ast.AST | None = None,
+        ) -> set[str]:
+            reference = _dotted_name(value)
+            if reference is None:
+                return set()
+            owners: set[str] = set()
+            for candidate in callback_reference_candidates(reference, context):
+                owners.update(factory_instance_aliases.get(candidate, set()))
+            return owners
+
+        def constructed_instance_references(
+            value: ast.AST | None,
+            *,
+            context: ast.AST | None = None,
+        ) -> set[str]:
+            if isinstance(value, ast.NamedExpr):
+                return constructed_instance_references(value.value, context=context)
+            if isinstance(value, ast.IfExp):
+                return constructed_instance_references(
+                    value.body,
+                    context=context,
+                ) | constructed_instance_references(value.orelse, context=context)
+            if isinstance(value, ast.BoolOp):
+                return set().union(
+                    *(
+                        constructed_instance_references(item, context=context)
+                        for item in value.values
+                    )
+                )
+            if isinstance(value, ast.Call):
+                return constructor_contract_owners(
+                    value.func,
+                    context=context,
+                ) | factory_contract_owners(value.func, context=context)
+            reference = _dotted_name(value)
+            if reference is None:
+                return set()
+            owners: set[str] = set()
+            for candidate in callback_reference_candidates(reference, context):
+                owners.update(constructed_instance_aliases.get(candidate, set()))
+            return owners
+
+        def local_return_values(
+            definition: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+        ) -> tuple[ast.AST, ...]:
+            if isinstance(definition, ast.Lambda):
+                return (definition.body,)
+            values: list[ast.AST] = []
+            for candidate in ast.walk(definition):
+                if not isinstance(candidate, (ast.Return, ast.Yield, ast.YieldFrom)):
+                    continue
+                if candidate.value is None:
+                    continue
+                enclosing = parent_nodes.get(candidate)
+                while enclosing is not None and not isinstance(
+                    enclosing,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda),
+                ):
+                    enclosing = parent_nodes.get(enclosing)
+                if enclosing is definition:
+                    values.append(candidate.value)
+            return tuple(values)
+
+        for definition, contract_reference in helper_definitions:
+            if isinstance(definition, ast.Lambda):
+                continue
+            owner = contract_reference.rpartition(".")[0]
+            if owner not in known_class_references:
+                continue
+            decorator_names = [
+                _dotted_name(decorator) for decorator in definition.decorator_list
+            ]
+            if any(
+                (
+                    name == "property"
+                    or name.endswith(".property")
+                    or name in functools_cached_property_aliases
+                    or (
+                        isinstance(decorator, ast.Attribute)
+                        and decorator.attr == "cached_property"
+                        and _dotted_name(decorator.value) in functools_aliases
+                    )
+                )
+                for decorator, name in zip(
+                    definition.decorator_list,
+                    decorator_names,
+                    strict=True,
+                )
+                if name is not None
+            ):
+                event_loop_property_return_values[contract_reference] = (
+                    local_return_values(definition)
+                )
+
+        changed = True
+        while changed:
+            changed = False
+            for definition, contract_reference in helper_definitions:
+                owners: set[str] = set()
+                for value in local_return_values(definition):
+                    owners.update(
+                        constructed_instance_references(
+                            value,
+                            context=value,
+                        )
+                    )
+                if owners:
+                    previous = factory_instance_aliases.setdefault(
+                        contract_reference,
+                        set(),
+                    )
+                    new_owners = owners - previous
+                    if new_owners:
+                        previous.update(new_owners)
+                        changed = True
+            for candidate in ast.walk(tree):
+                targets: list[ast.AST] = []
+                value: ast.AST | None = None
+                if isinstance(candidate, ast.Assign):
+                    targets = list(candidate.targets)
+                    value = candidate.value
+                elif isinstance(candidate, ast.AnnAssign):
+                    targets = [candidate.target]
+                    value = candidate.value
+                elif isinstance(candidate, ast.NamedExpr):
+                    targets = [candidate.target]
+                    value = candidate.value
+                constructor_owners = constructor_contract_owners(
+                    value,
+                    context=candidate,
+                )
+                factory_owners = factory_contract_owners(
+                    value,
+                    context=candidate,
+                )
+                instance_owners = constructed_instance_references(
+                    value,
+                    context=candidate,
+                )
+                if (
+                    not constructor_owners
+                    and not factory_owners
+                    and not instance_owners
+                ):
+                    continue
+                for target in targets:
+                    target_reference = _dotted_name(target)
+                    if target_reference is None:
+                        continue
+                    target_reference = callback_binding_reference(
+                        target_reference,
+                        candidate,
+                    )
+                    for aliases, owners in (
+                        (constructor_aliases, constructor_owners),
+                        (factory_instance_aliases, factory_owners),
+                        (constructed_instance_aliases, instance_owners),
+                    ):
+                        if not owners:
+                            continue
+                        previous = aliases.setdefault(target_reference, set())
+                        new_owners = owners - previous
+                        if new_owners:
+                            previous.update(new_owners)
+                            changed = True
+
+        def event_loop_property_contract_references(
+            value: ast.AST | None,
+            *,
+            context: ast.AST | None = None,
+        ) -> set[str]:
+            if not isinstance(value, ast.Attribute):
+                return set()
+            contracts: set[str] = set()
+            reference = _dotted_name(value)
+            if reference is not None:
+                contracts.update(
+                    candidate
+                    for candidate in callback_reference_candidates(reference, context)
+                    if candidate in event_loop_property_return_values
+                )
+            for owner in constructed_instance_references(
+                value.value,
+                context=context,
+            ):
+                contract = f"{owner}.{value.attr}"
+                if contract in event_loop_property_return_values:
+                    contracts.add(contract)
+            return contracts
+
+        def callback_contract_references(
+            value: ast.AST | None,
+            *,
+            context: ast.AST | None = None,
+        ) -> set[str]:
+            reference = _dotted_name(value)
+            if reference is None and isinstance(value, ast.Call):
+                constructor = _dotted_name(value.func)
+                if constructor is not None:
+                    reference = f"{constructor}.__call__"
+            if (
+                reference is None
+                and isinstance(value, ast.Attribute)
+                and isinstance(value.value, ast.Call)
+            ):
+                constructor = _dotted_name(value.value.func)
+                if constructor is not None:
+                    reference = f"{constructor}.{value.attr}"
+            if reference is not None:
+                for candidate in callback_reference_candidates(reference, context):
+                    direct = callback_contract_aliases.get(candidate, set())
+                    if direct:
+                        return set(direct)
+                if isinstance(value, ast.Attribute):
+                    contracts: set[str] = set()
+                    for owner in constructed_instance_references(
+                        value.value,
+                        context=context,
+                    ):
+                        contracts.update(
+                            callback_contract_aliases.get(
+                                f"{owner}.{value.attr}",
+                                set(),
+                            )
+                        )
+                    if contracts:
+                        return contracts
+                return set()
+            if isinstance(value, ast.NamedExpr):
+                return callback_contract_references(value.value, context=context)
+            if isinstance(value, ast.IfExp):
+                return callback_contract_references(
+                    value.body,
+                    context=context,
+                ) | callback_contract_references(value.orelse, context=context)
+            if isinstance(value, ast.BoolOp):
+                return set().union(
+                    *(
+                        callback_contract_references(item, context=context)
+                        for item in value.values
+                    )
+                )
+            return set()
+
+        def returned_contract_references(
+            value: ast.AST | None,
+            *,
+            context: ast.AST | None = None,
+        ) -> set[str]:
+            reference = _dotted_name(value)
+            if reference is None and isinstance(value, ast.Call):
+                constructor = _dotted_name(value.func)
+                if constructor is not None:
+                    reference = f"{constructor}.__call__"
+            if (
+                reference is None
+                and isinstance(value, ast.Attribute)
+                and isinstance(value.value, ast.Call)
+            ):
+                constructor = _dotted_name(value.value.func)
+                if constructor is not None:
+                    reference = f"{constructor}.{value.attr}"
+            if reference is not None:
+                for candidate in callback_reference_candidates(reference, context):
+                    direct = returned_contract_aliases.get(candidate, set())
+                    if direct:
+                        return set(direct)
+                if isinstance(value, ast.Attribute):
+                    contracts: set[str] = set()
+                    for owner in constructed_instance_references(
+                        value.value,
+                        context=context,
+                    ):
+                        contracts.update(
+                            returned_contract_aliases.get(
+                                f"{owner}.{value.attr}",
+                                set(),
+                            )
+                        )
+                    if contracts:
+                        return contracts
+                return set()
+            if isinstance(value, ast.NamedExpr):
+                return returned_contract_references(value.value, context=context)
+            if isinstance(value, ast.IfExp):
+                return returned_contract_references(
+                    value.body,
+                    context=context,
+                ) | returned_contract_references(value.orelse, context=context)
+            if isinstance(value, ast.BoolOp):
+                return set().union(
+                    *(
+                        returned_contract_references(item, context=context)
+                        for item in value.values
+                    )
+                )
+            return set()
+
+        def callback_contract_consumes_receiver(
+            value: ast.AST | None,
+            contract: str,
+        ) -> bool:
+            receiver_kind = callback_receiver_kinds.get(contract, "none")
+            if receiver_kind == "none":
+                return False
+            owner, separator, method_name = contract.rpartition(".")
+            if not separator:
+                return False
+
+            if isinstance(value, ast.Call) and method_name == "__call__":
+                receiver_reference = _dotted_name(value.func)
+                return receiver_reference is not None and (
+                    owner == receiver_reference
+                    or owner.endswith(f".{receiver_reference}")
+                )
+            if not isinstance(value, ast.Attribute) or value.attr != method_name:
+                return False
+
+            receiver = value.value
+            if isinstance(receiver, ast.Call):
+                receiver_reference = _dotted_name(receiver.func)
+                receiver_is_instance = True
+            else:
+                receiver_reference = _dotted_name(receiver)
+                receiver_is_instance = False
+            if owner in constructed_instance_references(
+                receiver,
+                context=value,
+            ):
+                return True
+            if receiver_reference is None or not (
+                owner == receiver_reference
+                or owner.endswith(f".{receiver_reference}")
+            ):
+                return False
+            return receiver_is_instance or receiver_kind == "class"
+
+        def reviewed_handler_registry_escape(value: ast.AST | None) -> bool:
+            if (
+                relative_path != "src/vivado_agent_mcp/tools.py"
+                or not function_stack
+                or function_stack[-1] != "_handlers"
+                or not isinstance(value, ast.DictComp)
+                or len(value.generators) != 1
+            ):
+                return False
+            generator = value.generators[0]
+            if (
+                generator.is_async
+                or generator.ifs
+                or not isinstance(generator.target, ast.Name)
+                or not isinstance(generator.iter, ast.Call)
+                or _dotted_name(generator.iter.func) != "registry_tool_names"
+                or generator.iter.args
+                or generator.iter.keywords
+                or not isinstance(value.key, ast.Name)
+                or value.key.id != generator.target.id
+                or not isinstance(value.value, ast.Call)
+                or _dotted_name(value.value.func) != "getattr"
+                or len(value.value.args) != 2
+                or value.value.keywords
+                or not isinstance(value.value.args[0], ast.Name)
+                or value.value.args[0].id != "self"
+                or not isinstance(value.value.args[1], ast.Call)
+            ):
+                return False
+            handler_lookup = value.value.args[1]
+            return (
+                _dotted_name(handler_lookup.func) == "handler_name"
+                and len(handler_lookup.args) == 1
+                and not handler_lookup.keywords
+                and isinstance(handler_lookup.args[0], ast.Name)
+                and handler_lookup.args[0].id == generator.target.id
+            )
+
+        changed = True
+        while changed:
+            changed = False
+            for candidate in ast.walk(tree):
+                targets: list[ast.AST] = []
+                value: ast.AST | None = None
+                if isinstance(candidate, ast.Assign):
+                    targets = list(candidate.targets)
+                    value = candidate.value
+                elif isinstance(candidate, ast.AnnAssign):
+                    targets = [candidate.target]
+                    value = candidate.value
+                elif isinstance(candidate, ast.NamedExpr):
+                    targets = [candidate.target]
+                    value = candidate.value
+                callback_contracts = callback_contract_references(
+                    value,
+                    context=candidate,
+                )
+                returned_contracts = returned_contract_references(
+                    value,
+                    context=candidate,
+                )
+                if not callback_contracts and not returned_contracts:
+                    continue
+                for target in targets:
+                    target_reference = _dotted_name(target)
+                    if target_reference is None:
+                        continue
+                    target_reference = callback_binding_reference(
+                        target_reference,
+                        candidate,
+                    )
+                    for aliases, contracts in (
+                        (callback_contract_aliases, callback_contracts),
+                        (returned_contract_aliases, returned_contracts),
+                    ):
+                        if not contracts:
+                            continue
+                        previous = aliases.setdefault(target_reference, set())
+                        new_contracts = contracts - previous
+                        if new_contracts:
+                            previous.update(new_contracts)
+                            changed = True
+
+        changed = True
+        while changed:
+            changed = False
+            for caller_contract, calls in helper_call_argument_sources.items():
+                returned_calls = helper_returned_calls.get(caller_contract, set())
+                if not returned_calls:
+                    continue
+                caller_names = returned_parameter_names.setdefault(
+                    caller_contract,
+                    set(),
+                )
+                for (
+                    call,
+                    positional_sources,
+                    keyword_sources,
+                    starred_sources,
+                    unpacked_keyword_sources,
+                ) in calls:
+                    if call not in returned_calls:
+                        continue
+                    for callee_contract in returned_contract_references(
+                        call.func,
+                        context=call,
+                    ):
+                        consumes_receiver = callback_contract_consumes_receiver(
+                            call.func,
+                            callee_contract,
+                        )
+                        for position in returned_parameter_positions.get(
+                            callee_contract,
+                            set(),
+                        ):
+                            argument_position = (
+                                position - 1
+                                if consumes_receiver and position > 0
+                                else position
+                            )
+                            sources = set(starred_sources)
+                            if argument_position < len(positional_sources):
+                                sources.update(
+                                    positional_sources[argument_position]
+                                )
+                            new_names = sources - caller_names
+                            if new_names:
+                                caller_names.update(new_names)
+                                changed = True
+                        callee_names = returned_parameter_names.get(
+                            callee_contract,
+                            set(),
+                        )
+                        for parameter_name in callee_names:
+                            sources = set(unpacked_keyword_sources)
+                            sources.update(
+                                keyword_sources.get(parameter_name, set())
+                            )
+                            new_names = sources - caller_names
+                            if new_names:
+                                caller_names.update(new_names)
+                                changed = True
+                caller_positions = helper_parameter_positions.get(
+                    caller_contract,
+                    {},
+                )
+                if caller_names:
+                    returned_parameter_positions[caller_contract] = {
+                        caller_positions[name]
+                        for name in caller_names
+                        if name in caller_positions
+                    }
+
+        changed = True
+        while changed:
+            changed = False
+            for caller_contract, calls in helper_call_argument_sources.items():
+                caller_name_kinds = event_loop_receiver_parameter_names.setdefault(
+                    caller_contract,
+                    {},
+                )
+                for (
+                    call,
+                    positional_sources,
+                    keyword_sources,
+                    starred_sources,
+                    unpacked_keyword_sources,
+                ) in calls:
+                    for callee_contract in callback_contract_references(
+                        call.func,
+                        context=call,
+                    ):
+                        consumes_receiver = callback_contract_consumes_receiver(
+                            call.func,
+                            callee_contract,
+                        )
+                        callee_position_kinds = (
+                            event_loop_receiver_parameter_positions.get(
+                                callee_contract,
+                                {},
+                            )
+                        )
+                        for position, kinds in callee_position_kinds.items():
+                            argument_position = (
+                                position - 1
+                                if consumes_receiver and position > 0
+                                else position
+                            )
+                            sources = set(starred_sources)
+                            if argument_position < len(positional_sources):
+                                sources.update(
+                                    positional_sources[argument_position]
+                                )
+                            for source in sources:
+                                observed = caller_name_kinds.setdefault(
+                                    source,
+                                    set(),
+                                )
+                                new_kinds = kinds - observed
+                                if new_kinds:
+                                    observed.update(new_kinds)
+                                    changed = True
+                        for parameter_name, kinds in (
+                            event_loop_receiver_parameter_names.get(
+                                callee_contract,
+                                {},
+                            ).items()
+                        ):
+                            sources = set(unpacked_keyword_sources)
+                            sources.update(
+                                keyword_sources.get(parameter_name, set())
+                            )
+                            for source in sources:
+                                observed = caller_name_kinds.setdefault(
+                                    source,
+                                    set(),
+                                )
+                                new_kinds = kinds - observed
+                                if new_kinds:
+                                    observed.update(new_kinds)
+                                    changed = True
+                caller_positions = helper_parameter_positions.get(
+                    caller_contract,
+                    {},
+                )
+                if caller_name_kinds:
+                    event_loop_receiver_parameter_positions[caller_contract] = {
+                        caller_positions[name]: set(kinds)
+                        for name, kinds in caller_name_kinds.items()
+                        if name in caller_positions
+                    }
+
         class Visitor(ast.NodeVisitor):
             def __init__(self) -> None:
                 self._annotation_call_only_depth = 0
                 self._conditional_depth = 0
+                self._event_loop_property_evaluation_stack: set[str] = set()
                 self._literal_code_depth = 0
 
             @staticmethod
@@ -226,7 +2239,13 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     ):
                         continue
                     for name in shadowed:
-                        visible.pop(name, None)
+                        for reference in tuple(visible):
+                            observed_module = visible[reference]
+                            if reference == name or (
+                                reference.startswith(f"{name}.")
+                                and scope.get(name) != observed_module
+                            ):
+                                visible.pop(reference, None)
                     visible.update(scope)
                 return {
                     module: {
@@ -459,6 +2478,33 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         return node.attr
                 return None
 
+            def _functools_aliases(self) -> set[str]:
+                return self._visible_lexical_aliases(
+                    functools_aliases,
+                    functools_alias_stack,
+                    functools_shadow_stack,
+                )
+
+            def _functools_partial_aliases(self) -> set[str]:
+                visible = self._visible_lexical_aliases(
+                    functools_partial_aliases,
+                    functools_partial_alias_stack,
+                    functools_partial_shadow_stack,
+                )
+                return visible | {
+                    f"{owner}.partial" for owner in self._functools_aliases()
+                }
+
+            def _functools_partial_reference(
+                self,
+                node: ast.AST | None,
+            ) -> bool:
+                reference = _dotted_name(node)
+                return (
+                    reference is not None
+                    and reference in self._functools_partial_aliases()
+                )
+
             def _operator_process_transform_kind(
                 self,
                 node: ast.Call,
@@ -523,8 +2569,25 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 attribute = _static_string_value(transform.args[0])
                 if attribute == "run_tcl":
                     return "run_tcl"
+                if (
+                    attribute in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
+                    and _event_loop_receiver(
+                        node.args[0],
+                        self._module_aliases(),
+                        function_aliases,
+                    )
+                ):
+                    return f"asyncio.{attribute}"
                 if attribute is None:
-                    return None
+                    receiver_module_kind = self._observed_module_reference_kind(
+                        node.args[0], self._module_aliases()
+                    )
+                    return (
+                        "asyncio.*"
+                        if transform_kind in {"attrgetter", "methodcaller"}
+                        and receiver_module_kind is None
+                        else None
+                    )
                 if transform_kind == "itemgetter":
                     return module_dict_callable_kind(
                         node.args[0],
@@ -867,6 +2930,41 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     node
                 ) or _module_reference_kind(node, module_aliases)
 
+            def _observed_module_or_event_loop_reference_kind(
+                self,
+                node: ast.AST | None,
+                module_aliases: dict[str, set[str]],
+                callable_aliases: dict[str, str],
+            ) -> str | None:
+                module_kind = self._observed_module_reference_kind(
+                    node,
+                    module_aliases,
+                )
+                if module_kind is not None:
+                    return module_kind
+                if _asyncio_runner_receiver(
+                    node,
+                    module_aliases,
+                    callable_aliases,
+                ):
+                    return "asyncio_runner"
+                if _asyncio_task_receiver(
+                    node,
+                    module_aliases,
+                    callable_aliases,
+                ):
+                    return "asyncio_task"
+                return (
+                    "asyncio"
+                    if _event_loop_receiver(
+                        node,
+                        module_aliases,
+                        {**function_aliases, **callable_aliases},
+                    )
+                    or self._returned_event_loop_receiver(node)
+                    else None
+                )
+
             def _registered_process_callable_kind(
                 self,
                 node: ast.AST | None,
@@ -929,7 +3027,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 module_aliases: dict[str, set[str]],
                 callable_aliases: dict[str, str],
             ) -> str | None:
-                return self._registered_process_callable_kind(
+                observed = self._registered_process_callable_kind(
                     node
                 ) or _callable_reference_kind(
                     node,
@@ -946,6 +3044,321 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     builtin_getattr_owners=self._builtins_aliases(),
                     builtin_getattr_aliases=self._builtin_getattr_aliases(),
                 )
+                if observed is not None:
+                    return observed
+                return None
+
+            def _returned_contract_arguments(
+                self,
+                node: ast.Call,
+            ) -> tuple[ast.AST, ...]:
+                contracts = returned_contract_references(node.func, context=node)
+                if not contracts:
+                    return ()
+                returned_positions: set[int] = set()
+                for contract in contracts:
+                    positions = returned_parameter_positions.get(contract, set())
+                    if callback_contract_consumes_receiver(node.func, contract):
+                        returned_positions.update(
+                            position - 1 for position in positions if position > 0
+                        )
+                    else:
+                        returned_positions.update(positions)
+                returned_names = set().union(
+                    *(
+                        returned_parameter_names.get(contract, set())
+                        for contract in contracts
+                    )
+                )
+                candidates = [
+                    argument.value
+                    if isinstance(argument, ast.Starred)
+                    else argument
+                    for index, argument in enumerate(node.args)
+                    if index in returned_positions
+                    or (
+                        isinstance(argument, ast.Starred)
+                        and bool(returned_positions)
+                    )
+                ]
+                candidates.extend(
+                    keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg in returned_names
+                    or (keyword.arg is None and bool(returned_names))
+                )
+                return tuple(candidates)
+
+            def _returned_event_loop_receiver(
+                self,
+                node: ast.AST | None,
+            ) -> bool:
+                if _event_loop_receiver(
+                    node,
+                    self._module_aliases(),
+                    {**function_aliases, **self._callable_aliases()},
+                ):
+                    return True
+                for contract in event_loop_property_contract_references(
+                    node,
+                    context=node,
+                ):
+                    if contract in self._event_loop_property_evaluation_stack:
+                        continue
+                    self._event_loop_property_evaluation_stack.add(contract)
+                    try:
+                        if any(
+                            self._returned_event_loop_receiver(value)
+                            for value in event_loop_property_return_values[contract]
+                        ):
+                            return True
+                    finally:
+                        self._event_loop_property_evaluation_stack.remove(contract)
+                if isinstance(node, ast.NamedExpr):
+                    return self._returned_event_loop_receiver(node.value)
+                if isinstance(node, ast.IfExp):
+                    return self._returned_event_loop_receiver(
+                        node.body
+                    ) or self._returned_event_loop_receiver(node.orelse)
+                if isinstance(node, ast.BoolOp):
+                    return any(
+                        self._returned_event_loop_receiver(candidate)
+                        for candidate in node.values
+                    )
+                if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                    return any(
+                        self._returned_event_loop_receiver(candidate)
+                        for candidate in node.elts
+                    )
+                if isinstance(node, ast.Dict):
+                    return any(
+                        self._returned_event_loop_receiver(candidate)
+                        for candidate in (*node.keys, *node.values)
+                        if candidate is not None
+                    )
+                if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+                    return self._returned_event_loop_receiver(node.elt)
+                if isinstance(node, ast.DictComp):
+                    return self._returned_event_loop_receiver(
+                        node.key
+                    ) or self._returned_event_loop_receiver(node.value)
+                if isinstance(node, (ast.Await, ast.Yield, ast.YieldFrom)):
+                    return self._returned_event_loop_receiver(node.value)
+                if isinstance(node, ast.Subscript):
+                    return self._returned_event_loop_receiver(node.value)
+                if isinstance(node, ast.Call) and node.args and not node.keywords:
+                    builtin_name: str | None = None
+                    if isinstance(node.func, ast.Name) and (
+                        node.func.id in {"iter", "next"}
+                        and self._builtin_receiver_available(node.func.id)
+                    ):
+                        builtin_name = node.func.id
+                    elif (
+                        isinstance(node.func, ast.Attribute)
+                        and node.func.attr in {"iter", "next"}
+                        and _dotted_name(node.func.value) in self._builtins_aliases()
+                    ):
+                        builtin_name = node.func.attr
+                    if (
+                        builtin_name == "next"
+                        or (builtin_name == "iter" and len(node.args) == 1)
+                    ):
+                        return self._returned_event_loop_receiver(node.args[0])
+                return isinstance(node, ast.Call) and any(
+                    self._returned_event_loop_receiver(candidate)
+                    for candidate in self._returned_contract_arguments(node)
+                )
+
+            def _returned_event_loop_process_call_kind(
+                self,
+                node: ast.Call,
+            ) -> str | None:
+                if (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr
+                    in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
+                    and self._returned_event_loop_receiver(node.func.value)
+                ):
+                    return f"asyncio.{node.func.attr}"
+                return None
+
+            def _returned_callable_kind(
+                self,
+                node: ast.AST | None,
+            ) -> str | None:
+                if isinstance(node, ast.NamedExpr):
+                    return self._returned_callable_kind(node.value)
+                if isinstance(node, ast.IfExp):
+                    return self._returned_callable_kind(
+                        node.body
+                    ) or self._returned_callable_kind(node.orelse)
+                if isinstance(node, ast.BoolOp):
+                    return next(
+                        (
+                            kind
+                            for candidate in node.values
+                            if (kind := self._returned_callable_kind(candidate))
+                        ),
+                        None,
+                    )
+                if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                    return next(
+                        (
+                            kind
+                            for candidate in node.elts
+                            if (kind := self._returned_callable_kind(candidate))
+                        ),
+                        None,
+                    )
+                if isinstance(node, ast.Dict):
+                    return next(
+                        (
+                            kind
+                            for candidate in (*node.keys, *node.values)
+                            if candidate is not None
+                            and (kind := self._returned_callable_kind(candidate))
+                        ),
+                        None,
+                    )
+                if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+                    return self._returned_callable_kind(node.elt)
+                if isinstance(node, ast.DictComp):
+                    return self._returned_callable_kind(
+                        node.key
+                    ) or self._returned_callable_kind(node.value)
+                if isinstance(node, (ast.Await, ast.Yield, ast.YieldFrom)):
+                    return self._returned_callable_kind(node.value)
+                if isinstance(node, ast.Subscript):
+                    return self._returned_callable_kind(node.value)
+                if not isinstance(node, ast.Call):
+                    return None
+                for candidate in self._returned_contract_arguments(node):
+                    call_kind = self._registered_process_callable_kind(
+                        candidate
+                    ) or _callable_reference_kind(
+                        candidate,
+                        self._module_aliases(),
+                        {},
+                        self._callable_aliases(),
+                        self._vars_aliases(),
+                        builtin_getattr_available=self._builtin_receiver_available(
+                            "getattr"
+                        ),
+                        builtin_object_available=self._builtin_receiver_available(
+                            "object"
+                        ),
+                        builtin_getattr_owners=self._builtins_aliases(),
+                        builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                    ) or self._dynamic_attribute_callable_kind(candidate)
+                    if call_kind is not None:
+                        return call_kind
+                return None
+
+            def _dynamic_attribute_callable_kind(
+                self,
+                node: ast.AST | None,
+            ) -> str | None:
+                if isinstance(node, ast.NamedExpr):
+                    return self._dynamic_attribute_callable_kind(node.value)
+                if isinstance(node, ast.IfExp):
+                    return next(
+                        (
+                            kind
+                            for candidate in (node.body, node.orelse)
+                            if (
+                                kind := self._dynamic_attribute_callable_kind(
+                                    candidate
+                                )
+                            )
+                        ),
+                        None,
+                    )
+                if isinstance(node, ast.BoolOp):
+                    return next(
+                        (
+                            kind
+                            for candidate in node.values
+                            if (
+                                kind := self._dynamic_attribute_callable_kind(
+                                    candidate
+                                )
+                            )
+                        ),
+                        None,
+                    )
+                if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                    return next(
+                        (
+                            kind
+                            for candidate in node.elts
+                            if (
+                                kind := self._dynamic_attribute_callable_kind(
+                                    candidate
+                                )
+                            )
+                        ),
+                        None,
+                    )
+                if isinstance(node, ast.Dict):
+                    return next(
+                        (
+                            kind
+                            for candidate in node.values
+                            if (
+                                kind := self._dynamic_attribute_callable_kind(
+                                    candidate
+                                )
+                            )
+                        ),
+                        None,
+                    )
+                if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+                    return self._dynamic_attribute_callable_kind(node.elt)
+                if isinstance(node, ast.DictComp):
+                    return self._dynamic_attribute_callable_kind(
+                        node.key
+                    ) or self._dynamic_attribute_callable_kind(node.value)
+                if (
+                    isinstance(node, ast.Call)
+                    and self._functools_partial_reference(node.func)
+                    and node.args
+                ):
+                    wrapped_kind = self._observed_callable_reference_kind(
+                        node.args[0],
+                        self._module_aliases(),
+                        self._callable_aliases(),
+                    ) or self._dynamic_attribute_callable_kind(node.args[0])
+                    if wrapped_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                        return wrapped_kind
+                if (
+                    isinstance(node, ast.Call)
+                    and self._operator_transform_reference_kind(node.func)
+                    in {"attrgetter", "methodcaller"}
+                    and node.args
+                ):
+                    attribute = _static_string_value(node.args[0])
+                    if (
+                        attribute is None
+                        or attribute in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
+                    ):
+                        return DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                owner_node, attribute = _static_attribute_lookup(
+                    node,
+                    builtin_getattr_available=self._builtin_receiver_available(
+                        "getattr"
+                    ),
+                    builtin_object_available=self._builtin_receiver_available(
+                        "object"
+                    ),
+                    builtin_getattr_owners=self._builtins_aliases(),
+                    builtin_getattr_aliases=self._builtin_getattr_aliases(),
+                    vars_references=self._vars_aliases(),
+                )
+                return (
+                    DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                    if owner_node is not None and attribute == "*"
+                    else None
+                )
 
             def _qualified_vars_descendants(
                 self,
@@ -959,6 +3372,31 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     for candidate in self._qualified_vars_aliases()
                     if candidate.startswith(prefix)
                 }
+
+            def _dynamic_callable_descendants(
+                self,
+                reference: str | None,
+            ) -> set[str]:
+                if reference is None:
+                    return set()
+                prefix = f"{reference}."
+                return {
+                    candidate[len(reference) :]
+                    for candidate, kind in self._callable_aliases().items()
+                    if kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                    and candidate.startswith(prefix)
+                }
+
+            @staticmethod
+            def _dynamic_callable_source_reference(
+                node: ast.AST | None,
+            ) -> str | None:
+                reference = _dotted_name(node)
+                if reference is not None:
+                    return reference
+                if isinstance(node, ast.Call):
+                    return _dotted_name(node.func)
+                return None
 
             def _qualified_vars_source_reference(
                 self,
@@ -1040,6 +3478,52 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 if builtin_getattr_alias:
                     self._record(node, "builtin.getattr.attribute_export")
 
+            def _bind_qualified_dynamic_callable_target(
+                self,
+                reference: str,
+                *,
+                call_kind: str | None,
+                descendant_suffixes: set[str],
+            ) -> None:
+                visible_bindings = {
+                    candidate
+                    for candidate, kind in self._callable_aliases().items()
+                    if kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                    and (
+                        candidate == reference
+                        or candidate.startswith(f"{reference}.")
+                    )
+                }
+                preserve_bindings = (
+                    visible_bindings if self._conditional_depth > 0 else set()
+                )
+                callable_shadow_stack[-1].update(visible_bindings)
+                for candidate in tuple(callable_alias_stack[-1]):
+                    if candidate == reference or candidate.startswith(
+                        f"{reference}."
+                    ):
+                        callable_alias_stack[-1].pop(candidate, None)
+                callable_alias_stack[-1].update(
+                    {
+                        candidate: DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                        for candidate in preserve_bindings
+                    }
+                )
+                if call_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                    callable_alias_stack[-1][reference] = (
+                        DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                    )
+                callable_alias_stack[-1].update(
+                    {
+                        f"{reference}{suffix}": DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                        for suffix in descendant_suffixes
+                    }
+                )
+                if ".__call__" in descendant_suffixes:
+                    callable_alias_stack[-1][reference] = (
+                        DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                    )
+
             def _shadow_name(
                 self,
                 name: str,
@@ -1085,10 +3569,33 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     and self._conditional_depth > 0
                     and name in self._operator_aliases()
                 )
+                preserve_functools_alias = (
+                    preserve_conditional_vars
+                    and self._conditional_depth > 0
+                    and name in self._functools_aliases()
+                )
+                preserve_functools_partial_alias = (
+                    preserve_conditional_vars
+                    and self._conditional_depth > 0
+                    and name in self._functools_partial_aliases()
+                )
                 preserve_operator_transform = (
                     self._operator_transform_aliases().get(name)
                     if preserve_conditional_vars and self._conditional_depth > 0
                     else None
+                )
+                visible_dynamic_callable_bindings = {
+                    reference
+                    for reference, kind in self._callable_aliases().items()
+                    if kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                    and (
+                        reference == name or reference.startswith(f"{name}.")
+                    )
+                }
+                preserve_dynamic_callable_bindings = (
+                    visible_dynamic_callable_bindings
+                    if preserve_conditional_vars and self._conditional_depth > 0
+                    else set()
                 )
                 preserve_qualified_aliases = (
                     {
@@ -1110,7 +3617,12 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         dependent_aliases & self._qualified_vars_aliases()
                     )
                 callable_shadow_stack[-1].add(name)
-                callable_alias_stack[-1].pop(name, None)
+                callable_shadow_stack[-1].update(
+                    visible_dynamic_callable_bindings
+                )
+                for reference in tuple(callable_alias_stack[-1]):
+                    if reference == name or reference.startswith(f"{name}."):
+                        callable_alias_stack[-1].pop(reference, None)
                 module_shadow_stack[-1].add(name)
                 module_alias_stack[-1].pop(name, None)
                 conditional_global_or_module_binding = (
@@ -1145,6 +3657,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 operator_alias_stack[-1].discard(name)
                 operator_transform_shadow_stack[-1].add(name)
                 operator_transform_alias_stack[-1].pop(name, None)
+                functools_shadow_stack[-1].add(name)
+                functools_alias_stack[-1].discard(name)
+                functools_partial_shadow_stack[-1].add(name)
+                functools_partial_alias_stack[-1].discard(name)
                 qualified_vars_exact_shadow_stack[-1].add(name)
                 qualified_vars_exact_shadow_stack[-1].update(dependent_aliases)
                 qualified_vars_prefix_shadow_stack[-1].add(name)
@@ -1169,16 +3685,39 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     module_registry_alias_stack[-1].add(name)
                 if preserve_operator_alias:
                     operator_alias_stack[-1].add(name)
+                if preserve_functools_alias:
+                    functools_alias_stack[-1].add(name)
+                if preserve_functools_partial_alias:
+                    functools_partial_alias_stack[-1].add(name)
                 if preserve_operator_transform is not None:
                     operator_transform_alias_stack[-1][name] = (
                         preserve_operator_transform
                     )
+                callable_alias_stack[-1].update(
+                    {
+                        reference: DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                        for reference in preserve_dynamic_callable_bindings
+                    }
+                )
                 qualified_vars_alias_stack[-1].update(
                     preserve_qualified_aliases
                 )
 
             def _delete_name(self, name: str) -> None:
                 current_index = len(alias_scope_kind_stack) - 1
+                visible_dynamic_callable_bindings = {
+                    reference
+                    for reference, kind in self._callable_aliases().items()
+                    if kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                    and (
+                        reference == name or reference.startswith(f"{name}.")
+                    )
+                }
+                preserve_dynamic_callable_bindings = (
+                    visible_dynamic_callable_bindings
+                    if self._conditional_depth > 0
+                    else set()
+                )
                 if name in global_name_stack[-1]:
                     target_indexes = {0, current_index}
                 elif name in nonlocal_name_stack[-1] and current_index > 0:
@@ -1191,7 +3730,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     or name in global_name_stack[-1]
                 )
                 for index in target_indexes:
-                    callable_alias_stack[index].pop(name, None)
+                    for reference in tuple(callable_alias_stack[index]):
+                        if reference == name or reference.startswith(f"{name}."):
+                            callable_alias_stack[index].pop(reference, None)
                     module_alias_stack[index].pop(name, None)
                     operator_transform_alias_stack[index].pop(name, None)
                     for aliases in (
@@ -1202,6 +3743,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         sys_alias_stack,
                         module_registry_alias_stack,
                         operator_alias_stack,
+                        functools_alias_stack,
+                        functools_partial_alias_stack,
                     ):
                         aliases[index].discard(name)
                     builtin_getattr_alias_stack[index].difference_update(
@@ -1224,6 +3767,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             module_registry_shadow_stack,
                             operator_shadow_stack,
                             operator_transform_shadow_stack,
+                            functools_shadow_stack,
+                            functools_partial_shadow_stack,
                         ):
                             shadows[index].discard(name)
                     if restore_builtin_getattr:
@@ -1232,6 +3777,12 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     else:
                         builtin_name_shadow_stack[index].add(name)
                         builtin_getattr_shadow_stack[index].add(name)
+                    callable_alias_stack[index].update(
+                        {
+                            reference: DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                            for reference in preserve_dynamic_callable_bindings
+                        }
+                    )
                 if self._in_class_body() and class_builtin_getattr_export_stack:
                     class_builtin_getattr_export_stack[-1].difference_update(
                         {
@@ -1255,6 +3806,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 builtin_getattr_alias: bool = False,
                 operator_alias: bool = False,
                 operator_transform_kind: str | None = None,
+                functools_alias: bool = False,
+                functools_partial_alias: bool = False,
             ) -> None:
                 self._shadow_name(name)
                 if builtin_getattr_alias:
@@ -1277,6 +3830,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     module_registry_alias_stack[-1].add(name)
                 if operator_alias:
                     operator_alias_stack[-1].add(name)
+                if functools_alias:
+                    functools_alias_stack[-1].add(name)
+                if functools_partial_alias:
+                    functools_partial_alias_stack[-1].add(name)
                 if operator_transform_kind is not None:
                     operator_transform_alias_stack[-1][name] = (
                         operator_transform_kind
@@ -1438,6 +3995,71 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 if isinstance(target, ast.Starred):
                     return Visitor._bound_names(target.value)
                 return ()
+
+            @staticmethod
+            def _qualified_bound_references(target: ast.AST) -> tuple[str, ...]:
+                if isinstance(target, (ast.Attribute, ast.Subscript)):
+                    reference = _dotted_name(target)
+                    return (reference,) if reference is not None else ()
+                if isinstance(target, (ast.Tuple, ast.List)):
+                    return tuple(
+                        reference
+                        for item in target.elts
+                        for reference in Visitor._qualified_bound_references(item)
+                    )
+                if isinstance(target, ast.Starred):
+                    return Visitor._qualified_bound_references(target.value)
+                return ()
+
+            def _bound_module_kinds(
+                self,
+                target: ast.AST,
+                value: ast.AST | None,
+                module_aliases: dict[str, set[str]],
+                callable_aliases: dict[str, str],
+            ) -> dict[str, str]:
+                if isinstance(target, (ast.Name, ast.Attribute, ast.Subscript)):
+                    target_reference = _dotted_name(target)
+                    module_kind = (
+                        self._observed_module_or_event_loop_reference_kind(
+                            value,
+                            module_aliases,
+                            callable_aliases,
+                        )
+                    )
+                    return (
+                        {target_reference: module_kind}
+                        if target_reference is not None and module_kind
+                        else {}
+                    )
+                if isinstance(target, ast.Starred):
+                    return self._bound_module_kinds(
+                        target.value,
+                        value,
+                        module_aliases,
+                        callable_aliases,
+                    )
+                if not isinstance(target, (ast.Tuple, ast.List)):
+                    return {}
+                if not isinstance(value, (ast.Tuple, ast.List)) or len(
+                    target.elts
+                ) != len(value.elts):
+                    return {}
+                projected: dict[str, str] = {}
+                for nested_target, nested_value in zip(
+                    target.elts,
+                    value.elts,
+                    strict=True,
+                ):
+                    projected.update(
+                        self._bound_module_kinds(
+                            nested_target,
+                            nested_value,
+                            module_aliases,
+                            callable_aliases,
+                        )
+                    )
+                return projected
 
             def _builtin_getattr_bound_names(
                 self,
@@ -1615,15 +4237,18 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 return tuple(
                     (
                         parameter.arg,
-                        self._observed_module_reference_kind(
+                        self._observed_module_or_event_loop_reference_kind(
                             default,
                             current_module_aliases,
+                            current_callable_aliases,
                         ),
                         self._observed_callable_reference_kind(
                             default,
                             current_module_aliases,
                             current_callable_aliases,
-                        ),
+                        )
+                        or self._returned_callable_kind(default)
+                        or self._dynamic_attribute_callable_kind(default),
                         self._dynamic_reference_kind(default),
                         self._vars_reference(default),
                         self._sys_reference(default),
@@ -1702,6 +4327,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 operator_shadow_stack.append(set())
                 operator_transform_alias_stack.append({})
                 operator_transform_shadow_stack.append(set())
+                functools_alias_stack.append(set())
+                functools_shadow_stack.append(set())
+                functools_partial_alias_stack.append(set())
+                functools_partial_shadow_stack.append(set())
                 qualified_vars_alias_stack.append(set())
                 qualified_vars_exact_shadow_stack.append(set())
                 qualified_vars_prefix_shadow_stack.append(set())
@@ -1725,6 +4354,10 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 operator_transform_alias_stack.pop()
                 operator_shadow_stack.pop()
                 operator_alias_stack.pop()
+                functools_partial_shadow_stack.pop()
+                functools_partial_alias_stack.pop()
+                functools_shadow_stack.pop()
+                functools_alias_stack.pop()
                 sys_shadow_stack.pop()
                 sys_alias_stack.pop()
                 vars_shadow_stack.pop()
@@ -1826,6 +4459,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             )
                         if builtin_getattr_alias:
                             class_builtin_getattr_export_stack[-1].add(bound_name)
+                if call_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                    return
                 if call_kind:
                     self._record(node, call_kind)
                 elif module_kind:
@@ -1860,6 +4495,16 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 if bound_name not in (
                     global_name_stack[-1] | nonlocal_name_stack[-1]
                 ):
+                    return
+                if call_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                    if bound_name in global_name_stack[-1]:
+                        callable_alias_stack[0][bound_name] = (
+                            DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                        )
+                    elif len(callable_alias_stack) > 1:
+                        callable_alias_stack[-2][bound_name] = (
+                            DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                        )
                     return
                 if vars_alias:
                     if bound_name in global_name_stack[-1]:
@@ -1934,7 +4579,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 for observed_call_kind in sorted(
                     {kind for kind in (previous_call_kind, call_kind) if kind}
                 ):
-                    self._record(node, observed_call_kind)
+                    if observed_call_kind != DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                        self._record(node, observed_call_kind)
                 for observed_module_kind in sorted(
                     {kind for kind in (previous_module_kind, module_kind) if kind}
                 ):
@@ -2051,7 +4697,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         callable_aliases,
                     )
                     if call_kind:
-                        self._record(candidate, call_kind)
+                        if call_kind != DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                            self._record(candidate, call_kind)
                         return
                     if isinstance(candidate, ast.Subscript) and _static_module_dict_kind(
                         candidate.value,
@@ -2128,6 +4775,196 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
 
                 collect(source)
 
+            def _record_dynamic_callable_escape(
+                self,
+                node: ast.AST,
+                value: ast.AST | None,
+            ) -> None:
+                # The reviewed CapabilitySpec handler registry is a bounded dispatch
+                # table, not a process-launch escape. Any shape change falls back to
+                # the conservative dynamic-callable rule below.
+                if reviewed_handler_registry_escape(value):
+                    return
+                observed_kind = self._observed_callable_reference_kind(
+                    value,
+                    self._module_aliases(),
+                    self._callable_aliases(),
+                )
+                if observed_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                    self._record(node, observed_kind)
+                    return
+                call_kind = self._dynamic_attribute_callable_kind(value)
+                if call_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                    self._record(node, call_kind)
+
+            def _record_dynamic_callable_argument_escape(
+                self,
+                node: ast.Call,
+            ) -> None:
+                contracts = callback_contract_references(node.func, context=node)
+                if not contracts:
+                    return
+                callback_positions: set[int] = set()
+                for contract in contracts:
+                    positions = callback_parameter_positions.get(contract, set())
+                    if callback_contract_consumes_receiver(node.func, contract):
+                        callback_positions.update(
+                            position - 1 for position in positions if position > 0
+                        )
+                    else:
+                        callback_positions.update(positions)
+                callback_names = set().union(
+                    *(
+                        callback_parameter_names.get(contract, set())
+                        | callback_projected_keyword_names.get(contract, set())
+                        for contract in contracts
+                    )
+                )
+                candidates = [
+                    argument.value
+                    if isinstance(argument, ast.Starred)
+                    else argument
+                    for index, argument in enumerate(node.args)
+                    if index in callback_positions
+                    or (
+                        isinstance(argument, ast.Starred)
+                        and bool(callback_positions)
+                    )
+                ]
+                candidates.extend(
+                    keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg in callback_names
+                    or (keyword.arg is None and bool(callback_names))
+                )
+                for candidate in candidates:
+                    call_kind = self._observed_callable_reference_kind(
+                        candidate,
+                        self._module_aliases(),
+                        self._callable_aliases(),
+                    ) or self._returned_callable_kind(
+                        candidate
+                    ) or self._dynamic_attribute_callable_kind(candidate)
+                    if call_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                        self._record(node, call_kind)
+                        return
+
+            def _record_event_loop_receiver_argument_execution(
+                self,
+                node: ast.Call,
+            ) -> None:
+                contracts = callback_contract_references(node.func, context=node)
+                if not contracts:
+                    return
+                candidates: list[tuple[ast.AST, set[str]]] = []
+                for contract in contracts:
+                    position_kinds = event_loop_receiver_parameter_positions.get(
+                        contract,
+                        {},
+                    )
+                    consumes_receiver = callback_contract_consumes_receiver(
+                        node.func,
+                        contract,
+                    )
+                    for position, kinds in position_kinds.items():
+                        argument_position = (
+                            position - 1 if consumes_receiver and position > 0 else position
+                        )
+                        if argument_position < len(node.args):
+                            argument = node.args[argument_position]
+                            candidates.append(
+                                (
+                                    argument.value
+                                    if isinstance(argument, ast.Starred)
+                                    else argument,
+                                    set(kinds),
+                                )
+                            )
+                        elif any(
+                            isinstance(argument, ast.Starred)
+                            for argument in node.args
+                        ):
+                            candidates.extend(
+                                (argument.value, set(kinds))
+                                for argument in node.args
+                                if isinstance(argument, ast.Starred)
+                            )
+                    name_kinds = event_loop_receiver_parameter_names.get(
+                        contract,
+                        {},
+                    )
+                    for keyword in node.keywords:
+                        if keyword.arg in name_kinds:
+                            candidates.append(
+                                (keyword.value, set(name_kinds[keyword.arg]))
+                            )
+                        elif keyword.arg is None and name_kinds:
+                            candidates.append(
+                                (
+                                    keyword.value,
+                                    set().union(*name_kinds.values()),
+                                )
+                            )
+                module_aliases = self._module_aliases()
+                function_references = {
+                    **function_aliases,
+                    **self._callable_aliases(),
+                }
+                recorded: set[str] = set()
+                for candidate, kinds in candidates:
+                    if not _event_loop_receiver(
+                        candidate,
+                        module_aliases,
+                        function_references,
+                    ):
+                        continue
+                    for kind in kinds - recorded:
+                        self._record(node, kind)
+                        recorded.add(kind)
+
+            def _bind_dynamic_callable_container_mutation(
+                self,
+                node: ast.Call,
+            ) -> None:
+                if not isinstance(node.func, ast.Attribute):
+                    return
+                argument_indexes = {
+                    "__setitem__": (1,),
+                    "add": (0,),
+                    "append": (0,),
+                    "extend": (0,),
+                    "insert": (1,),
+                    "setdefault": (1,),
+                    "update": (0,),
+                }.get(node.func.attr)
+                if argument_indexes is None:
+                    return
+                candidates = [
+                    node.args[index]
+                    for index in argument_indexes
+                    if index < len(node.args)
+                ]
+                if node.func.attr == "update":
+                    candidates.extend(keyword.value for keyword in node.keywords)
+                for candidate in candidates:
+                    call_kind = self._observed_callable_reference_kind(
+                        candidate,
+                        self._module_aliases(),
+                        self._callable_aliases(),
+                    ) or self._returned_callable_kind(
+                        candidate
+                    ) or self._dynamic_attribute_callable_kind(candidate)
+                    if call_kind != DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+                        continue
+                    target_reference = _dotted_name(node.func.value)
+                    if target_reference is None:
+                        self._record(node, call_kind)
+                        return
+                    callable_alias_stack[-1][target_reference] = (
+                        DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                    )
+                    return
+
             def _record(self, node: ast.AST, call_kind: str) -> None:
                 normalized_kind = _normalized_execution_kind(call_kind)
                 function_name = function_stack[-1] if function_stack else "<module>"
@@ -2166,6 +5003,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 class_reference: str,
                 class_exports: set[str],
                 super_exports: set[str],
+                class_dynamic_callable_exports: set[str],
+                super_dynamic_callable_exports: set[str],
             ) -> None:
                 function_stack.append(node.name)
                 self._push_function_scope(
@@ -2179,6 +5018,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     qualified_vars_alias_stack[-1].update(
                         f"{class_reference}.{export}"
                         for export in class_exports
+                    )
+                    callable_alias_stack[-1].update(
+                        {
+                            f"{class_reference}.{export}": (
+                                DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                            )
+                            for export in class_dynamic_callable_exports
+                        }
                     )
                 receiver_name = self._method_receiver_name(node)
                 if receiver_name is not None:
@@ -2195,6 +5042,20 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         receiver_name,
                         set(),
                     ).update(receiver_references)
+                    callable_alias_stack[-1].update(
+                        {
+                            reference: DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                            for export in class_dynamic_callable_exports
+                            for reference in (
+                                f"{receiver_name}.{export}",
+                                f"{receiver_name}.__class__.{export}",
+                            )
+                        }
+                    )
+                    if "__call__" in class_dynamic_callable_exports:
+                        callable_alias_stack[-1][receiver_name] = (
+                            DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                        )
                     if self._builtin_receiver_available("type"):
                         type_references = {
                             f"type({receiver_name}).{export}"
@@ -2206,6 +5067,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                                 dependency,
                                 set(),
                             ).update(type_references)
+                        callable_alias_stack[-1].update(
+                            {
+                                f"type({receiver_name}).{export}": (
+                                    DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                                )
+                                for export in class_dynamic_callable_exports
+                            }
+                        )
                     if (
                         super_exports
                         and self._builtin_receiver_available("super")
@@ -2224,6 +5093,20 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                                 dependency,
                                 set(),
                             ).update(super_references)
+                    if (
+                        super_dynamic_callable_exports
+                        and self._builtin_receiver_available("super")
+                    ):
+                        callable_alias_stack[-1].update(
+                            {
+                                reference: DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                                for export in super_dynamic_callable_exports
+                                for reference in (
+                                    f"super().{export}",
+                                    f"super({class_reference},{receiver_name}).{export}",
+                                )
+                            }
+                        )
                 enclosing_conditional_depth = self._conditional_depth
                 self._conditional_depth = 0
                 try:
@@ -2281,6 +5164,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 enclosing_conditional_depth = self._conditional_depth
                 self._conditional_depth = 0
                 try:
+                    self._record_dynamic_callable_escape(node, node.body)
                     self.visit(node.body)
                 finally:
                     self._conditional_depth = enclosing_conditional_depth
@@ -2347,6 +5231,13 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         _dotted_name(base)
                     )
                 }
+                inherited_dynamic_callable_exports = {
+                    suffix.removeprefix(".")
+                    for base in node.bases
+                    for suffix in self._dynamic_callable_descendants(
+                        _dotted_name(base)
+                    )
+                }
                 self._record_conditional_alias_exposure(
                     node,
                     bound_name=node.name,
@@ -2361,6 +5252,12 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     self.visit(keyword.value)
                 function_stack.append(node.name)
                 self._push_alias_scope("class")
+                callable_alias_stack[-1].update(
+                    {
+                        export: DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                        for export in inherited_dynamic_callable_exports
+                    }
+                )
                 class_scope_depth_stack.append(len(module_alias_stack) - 1)
                 class_vars_export_stack.append(inherited_class_exports)
                 class_builtin_getattr_export_stack.append(
@@ -2370,6 +5267,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 class_reference_stack.append(class_reference)
                 class_exports: set[str] = set()
                 class_builtin_getattr_exports: set[str] = set()
+                class_dynamic_callable_exports: set[str] = set()
                 try:
                     for statement in node.body:
                         self.visit(statement)
@@ -2377,12 +5275,23 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     class_builtin_getattr_exports = set(
                         class_builtin_getattr_export_stack[-1]
                     )
+                    class_dynamic_callable_exports = {
+                        reference
+                        for reference, kind in callable_alias_stack[-1].items()
+                        if kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                    }
                     for method in tuple(class_method_stack[-1]):
                         self._visit_class_method_body(
                             method,
                             class_reference=class_reference,
                             class_exports=class_exports,
                             super_exports=inherited_class_exports,
+                            class_dynamic_callable_exports=(
+                                class_dynamic_callable_exports
+                            ),
+                            super_dynamic_callable_exports=(
+                                inherited_dynamic_callable_exports
+                            ),
                         )
                 finally:
                     class_reference_stack.pop()
@@ -2393,6 +5302,15 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     self._pop_alias_scope()
                     function_stack.pop()
                 self._shadow_name(node.name)
+                for reference in tuple(callable_alias_stack[-1]):
+                    if reference.startswith(f"{node.name}."):
+                        callable_alias_stack[-1].pop(reference, None)
+                callable_alias_stack[-1].update(
+                    {
+                        f"{node.name}.{export}": DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                        for export in class_dynamic_callable_exports
+                    }
+                )
                 qualified_exports = {
                     f"{node.name}.{export}" for export in class_exports
                 }
@@ -2426,6 +5344,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     module_kind = _imported_process_module_kind(alias.name)
                     sys_alias = alias.name == "sys"
                     operator_alias = alias.name == "operator"
+                    functools_alias = alias.name == "functools"
                     dynamic_kind = None
                     if alias.name == "importlib" or (
                         alias.name.startswith("importlib.") and alias.asname is None
@@ -2448,7 +5367,14 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         dynamic_kind=dynamic_kind,
                         sys_alias=sys_alias,
                         operator_alias=operator_alias,
+                        functools_alias=functools_alias,
                     )
+                    if alias.asname is None and "." in alias.name and module_kind:
+                        self._bind_aliases(
+                            alias.name,
+                            module_kind=module_kind,
+                            call_kind=None,
+                        )
                     self._record_class_exposure(
                         node,
                         bound_names=(bound_name,),
@@ -2472,6 +5398,9 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     if alias.name == "*":
                         if module_kind:
                             self._record(node, f"{module_kind}.*")
+                        if node.level == 0 and node.module == "functools":
+                            self._shadow_name("partial")
+                            functools_partial_alias_stack[-1].add("partial")
                         continue
                     bound_name = alias.asname or alias.name
                     imported_kind = (
@@ -2481,7 +5410,8 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     )
                     bound_module_kind = (
                         "asyncio"
-                        if node.module == "asyncio" and alias.name == "subprocess"
+                        if node.module == "asyncio"
+                        and alias.name in {"events", "subprocess"}
                         else None
                     )
                     bound_call_kind = (
@@ -2517,6 +5447,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         in {"attrgetter", "methodcaller", "getitem", "itemgetter"}
                         else None
                     )
+                    functools_partial_alias = (
+                        node.level == 0
+                        and node.module == "functools"
+                        and alias.name == "partial"
+                    )
                     self._record_conditional_alias_exposure(
                         node,
                         bound_name=bound_name,
@@ -2536,6 +5471,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         module_registry_alias=module_registry_alias,
                         operator_transform_kind=operator_transform_kind,
                         builtin_getattr_alias=builtin_getattr_alias,
+                        functools_partial_alias=functools_partial_alias,
                     )
                     self._record_class_exposure(
                         node,
@@ -2578,29 +5514,58 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                 self.visit(node.values[0])
                 self._visit_conditionally(node.values[1:])
 
-            def visit_For(self, node: ast.For) -> None:
+            def _visit_iteration(
+                self,
+                node: ast.For | ast.AsyncFor,
+            ) -> None:
                 self._record_binding_source_exposure(node, node.iter)
                 self.visit(node.iter)
-                self.visit(node.target)
-                self._visit_conditionally([*node.body, *node.orelse])
+                call_kind = self._observed_callable_reference_kind(
+                    node.iter,
+                    self._module_aliases(),
+                    self._callable_aliases(),
+                ) or self._returned_callable_kind(
+                    node.iter
+                ) or self._dynamic_attribute_callable_kind(node.iter)
+                self._conditional_depth += 1
+                try:
+                    for name in self._bound_names(node.target):
+                        self._record_conditional_alias_exposure(
+                            node,
+                            bound_name=name,
+                            module_kind=None,
+                            call_kind=call_kind,
+                        )
+                        self._bind_aliases(
+                            name,
+                            module_kind=None,
+                            call_kind=call_kind,
+                        )
+                    self.visit(node.target)
+                    for child in (*node.body, *node.orelse):
+                        self.visit(child)
+                finally:
+                    self._conditional_depth -= 1
+
+            def visit_For(self, node: ast.For) -> None:
+                self._visit_iteration(node)
 
             def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
-                self._record_binding_source_exposure(node, node.iter)
-                self.visit(node.iter)
-                self.visit(node.target)
-                self._visit_conditionally([*node.body, *node.orelse])
+                self._visit_iteration(node)
 
             def visit_While(self, node: ast.While) -> None:
                 self.visit(node.test)
                 self._visit_conditionally([*node.body, *node.orelse])
 
             def visit_Try(self, node: ast.Try) -> None:
-                conditional_nodes: list[ast.AST] = [*node.body, *node.orelse, *node.finalbody]
+                conditional_nodes: list[ast.AST] = [*node.body, *node.orelse]
                 for handler in node.handlers:
                     if handler.type is not None:
                         conditional_nodes.append(handler.type)
                     conditional_nodes.extend(handler.body)
                 self._visit_conditionally(conditional_nodes)
+                for statement in node.finalbody:
+                    self.visit(statement)
 
             def visit_TryStar(self, node: ast.TryStar) -> None:
                 self.visit_Try(node)
@@ -2618,9 +5583,31 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
 
             def visit_With(self, node: ast.With) -> None:
                 for item in node.items:
+                    aliases = self._callable_aliases()
+                    current_module_aliases = self._module_aliases()
                     self._record_binding_source_exposure(node, item.context_expr)
                     self.visit(item.context_expr)
                     if item.optional_vars is not None:
+                        target_module_kinds = self._bound_module_kinds(
+                            item.optional_vars,
+                            item.context_expr,
+                            current_module_aliases,
+                            aliases,
+                        )
+                        for name in self._bound_names(item.optional_vars):
+                            self._bind_aliases(
+                                name,
+                                module_kind=target_module_kinds.get(name),
+                                call_kind=None,
+                            )
+                        for reference in self._qualified_bound_references(
+                            item.optional_vars
+                        ):
+                            self._bind_aliases(
+                                reference,
+                                module_kind=target_module_kinds.get(reference),
+                                call_kind=None,
+                            )
                         self.visit(item.optional_vars)
                 self._visit_conditionally(node.body)
 
@@ -2644,25 +5631,40 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             def visit_Assign(self, node: ast.Assign) -> None:
                 aliases = self._callable_aliases()
                 current_module_aliases = self._module_aliases()
-                module_kind = self._observed_module_reference_kind(
+                module_kind = self._observed_module_or_event_loop_reference_kind(
                     node.value,
                     current_module_aliases,
+                    aliases,
                 )
                 call_kind = self._observed_callable_reference_kind(
                     node.value,
                     current_module_aliases,
                     aliases,
-                )
+                ) or self._returned_callable_kind(
+                    node.value
+                ) or self._dynamic_attribute_callable_kind(node.value)
                 dynamic_kind = self._dynamic_reference_kind(node.value)
                 vars_alias = self._vars_reference(node.value)
                 sys_alias = self._sys_reference(node.value)
                 module_registry_alias = self._module_registry_reference(node.value)
                 builtin_getattr_alias = self._builtin_getattr_reference(node.value)
+                functools_partial_alias = self._functools_partial_reference(
+                    node.value
+                )
                 qualified_suffixes = self._qualified_vars_descendants(
                     self._qualified_vars_source_reference(node.value)
                 )
+                dynamic_callable_suffixes = self._dynamic_callable_descendants(
+                    self._dynamic_callable_source_reference(node.value)
+                )
                 self._record_binding_source_exposure(node, node.value)
                 for target in node.targets:
+                    target_module_kinds = self._bound_module_kinds(
+                        target,
+                        node.value,
+                        current_module_aliases,
+                        aliases,
+                    )
                     target_builtin_getattr_names = (
                         self._builtin_getattr_bound_names(target, node.value)
                     )
@@ -2670,11 +5672,12 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         self._record_conditional_alias_exposure(
                             node,
                             bound_name=name,
-                            module_kind=(
-                                module_kind if isinstance(target, ast.Name) else None
-                            ),
+                            module_kind=target_module_kinds.get(name),
                             call_kind=(
-                                call_kind if isinstance(target, ast.Name) else None
+                                call_kind
+                                if isinstance(target, ast.Name)
+                                or call_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                                else None
                             ),
                             dynamic_kind=(
                                 dynamic_kind if isinstance(target, ast.Name) else None
@@ -2708,6 +5711,12 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     builtin_getattr_alias=builtin_getattr_alias,
                 )
                 for target in node.targets:
+                    target_module_kinds = self._bound_module_kinds(
+                        target,
+                        node.value,
+                        current_module_aliases,
+                        aliases,
+                    )
                     target_builtin_getattr_names = (
                         self._builtin_getattr_bound_names(target, node.value)
                     )
@@ -2724,11 +5733,12 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         self._record_cross_scope_exposure(
                             node,
                             bound_name=name,
-                            module_kind=(
-                                module_kind if isinstance(target, ast.Name) else None
-                            ),
+                            module_kind=target_module_kinds.get(name),
                             call_kind=(
-                                call_kind if isinstance(target, ast.Name) else None
+                                call_kind
+                                if isinstance(target, ast.Name)
+                                or call_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                                else None
                             ),
                             dynamic_kind=(
                                 dynamic_kind if isinstance(target, ast.Name) else None
@@ -2746,11 +5756,12 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         )
                         self._bind_aliases(
                             name,
-                            module_kind=(
-                                module_kind if isinstance(target, ast.Name) else None
-                            ),
+                            module_kind=target_module_kinds.get(name),
                             call_kind=(
-                                call_kind if isinstance(target, ast.Name) else None
+                                call_kind
+                                if isinstance(target, ast.Name)
+                                or call_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                                else None
                             ),
                             dynamic_kind=(
                                 dynamic_kind if isinstance(target, ast.Name) else None
@@ -2765,13 +5776,41 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             builtin_getattr_alias=(
                                 name in target_builtin_getattr_names
                             ),
+                            functools_partial_alias=(
+                                functools_partial_alias
+                                if isinstance(target, ast.Name)
+                                else False
+                            ),
                         )
                         if isinstance(target, ast.Name):
                             qualified_vars_alias_stack[-1].update(
                                 f"{name}{suffix}" for suffix in qualified_suffixes
                             )
+                            callable_alias_stack[-1].update(
+                                {
+                                    f"{name}{suffix}": (
+                                        DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                                    )
+                                    for suffix in dynamic_callable_suffixes
+                                }
+                            )
+                            if ".__call__" in dynamic_callable_suffixes:
+                                callable_alias_stack[-1][name] = (
+                                    DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                                )
+                    for reference in self._qualified_bound_references(target):
+                        self._bind_aliases(
+                            reference,
+                            module_kind=target_module_kinds.get(reference),
+                            call_kind=None,
+                        )
                     target_reference = _dotted_name(target)
                     if target_reference is not None and not isinstance(target, ast.Name):
+                        self._bind_qualified_dynamic_callable_target(
+                            target_reference,
+                            call_kind=call_kind,
+                            descendant_suffixes=dynamic_callable_suffixes,
+                        )
                         self._bind_qualified_vars_target(
                             target_reference,
                             vars_alias=vars_alias,
@@ -2785,22 +5824,31 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
                 aliases = self._callable_aliases()
                 current_module_aliases = self._module_aliases()
-                module_kind = self._observed_module_reference_kind(
+                module_kind = self._observed_module_or_event_loop_reference_kind(
                     node.value,
                     current_module_aliases,
+                    aliases,
                 )
                 call_kind = self._observed_callable_reference_kind(
                     node.value,
                     current_module_aliases,
                     aliases,
-                )
+                ) or self._returned_callable_kind(
+                    node.value
+                ) or self._dynamic_attribute_callable_kind(node.value)
                 dynamic_kind = self._dynamic_reference_kind(node.value)
                 vars_alias = self._vars_reference(node.value)
                 sys_alias = self._sys_reference(node.value)
                 module_registry_alias = self._module_registry_reference(node.value)
                 builtin_getattr_alias = self._builtin_getattr_reference(node.value)
+                functools_partial_alias = self._functools_partial_reference(
+                    node.value
+                )
                 qualified_suffixes = self._qualified_vars_descendants(
                     self._qualified_vars_source_reference(node.value)
+                )
+                dynamic_callable_suffixes = self._dynamic_callable_descendants(
+                    self._dynamic_callable_source_reference(node.value)
                 )
                 if node.value is not None:
                     self._record_binding_source_exposure(node, node.value)
@@ -2884,10 +5932,40 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                             if isinstance(node.target, ast.Name)
                             else False
                         ),
+                        functools_partial_alias=(
+                            functools_partial_alias
+                            if isinstance(node.target, ast.Name)
+                            else False
+                        ),
                     )
                     if isinstance(node.target, ast.Name):
                         qualified_vars_alias_stack[-1].update(
                             f"{name}{suffix}" for suffix in qualified_suffixes
+                        )
+                        callable_alias_stack[-1].update(
+                            {
+                                f"{name}{suffix}": DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                                for suffix in dynamic_callable_suffixes
+                            }
+                        )
+                        if ".__call__" in dynamic_callable_suffixes:
+                            callable_alias_stack[-1][name] = (
+                                DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                            )
+                if node.value is not None:
+                    target_module_kinds = self._bound_module_kinds(
+                        node.target,
+                        node.value,
+                        current_module_aliases,
+                        aliases,
+                    )
+                    for reference in self._qualified_bound_references(
+                        node.target
+                    ):
+                        self._bind_aliases(
+                            reference,
+                            module_kind=target_module_kinds.get(reference),
+                            call_kind=None,
                         )
                 target_reference = _dotted_name(node.target)
                 if (
@@ -2895,6 +5973,11 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     and target_reference is not None
                     and not isinstance(node.target, ast.Name)
                 ):
+                    self._bind_qualified_dynamic_callable_target(
+                        target_reference,
+                        call_kind=call_kind,
+                        descendant_suffixes=dynamic_callable_suffixes,
+                    )
                     self._bind_qualified_vars_target(
                         target_reference,
                         vars_alias=vars_alias,
@@ -2908,22 +5991,31 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
                 aliases = self._callable_aliases()
                 current_module_aliases = self._module_aliases()
-                module_kind = self._observed_module_reference_kind(
+                module_kind = self._observed_module_or_event_loop_reference_kind(
                     node.value,
                     current_module_aliases,
+                    aliases,
                 )
                 call_kind = self._observed_callable_reference_kind(
                     node.value,
                     current_module_aliases,
                     aliases,
-                )
+                ) or self._returned_callable_kind(
+                    node.value
+                ) or self._dynamic_attribute_callable_kind(node.value)
                 dynamic_kind = self._dynamic_reference_kind(node.value)
                 vars_alias = self._vars_reference(node.value)
                 sys_alias = self._sys_reference(node.value)
                 module_registry_alias = self._module_registry_reference(node.value)
                 builtin_getattr_alias = self._builtin_getattr_reference(node.value)
+                functools_partial_alias = self._functools_partial_reference(
+                    node.value
+                )
                 qualified_suffixes = self._qualified_vars_descendants(
                     self._qualified_vars_source_reference(node.value)
+                )
+                dynamic_callable_suffixes = self._dynamic_callable_descendants(
+                    self._dynamic_callable_source_reference(node.value)
                 )
                 self._record_binding_source_exposure(node, node.value)
                 if isinstance(node.target, ast.Name):
@@ -2975,11 +6067,42 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                         sys_alias=sys_alias,
                         module_registry_alias=module_registry_alias,
                         builtin_getattr_alias=builtin_getattr_alias,
+                        functools_partial_alias=functools_partial_alias,
                     )
                     qualified_vars_alias_stack[-1].update(
                         f"{node.target.id}{suffix}"
                         for suffix in qualified_suffixes
                     )
+                    callable_alias_stack[-1].update(
+                        {
+                            f"{node.target.id}{suffix}": (
+                                DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                            )
+                            for suffix in dynamic_callable_suffixes
+                        }
+                    )
+                    if ".__call__" in dynamic_callable_suffixes:
+                        callable_alias_stack[-1][node.target.id] = (
+                            DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+                        )
+
+            def visit_AugAssign(self, node: ast.AugAssign) -> None:
+                call_kind = self._observed_callable_reference_kind(
+                    node.value,
+                    self._module_aliases(),
+                    self._callable_aliases(),
+                ) or self._returned_callable_kind(
+                    node.value
+                ) or self._dynamic_attribute_callable_kind(node.value)
+                self._record_binding_source_exposure(node, node.value)
+                self.visit(node.value)
+                if call_kind is not None:
+                    target_reference = _dotted_name(node.target)
+                    if target_reference is None:
+                        self._record(node, call_kind)
+                    else:
+                        callable_alias_stack[-1][target_reference] = call_kind
+                self.visit(node.target)
 
             def visit_Delete(self, node: ast.Delete) -> None:
                 for target in node.targets:
@@ -2990,6 +6113,17 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
             def visit_Call(self, node: ast.Call) -> None:
                 aliases = self._callable_aliases()
                 self._record_literal_code_execution(node)
+                self._record_dynamic_callable_argument_escape(node)
+                self._record_event_loop_receiver_argument_execution(node)
+                self._bind_dynamic_callable_container_mutation(node)
+                returned_event_loop_call_kind = (
+                    self._returned_event_loop_process_call_kind(node)
+                )
+                if returned_event_loop_call_kind is not None:
+                    self._record(node, returned_event_loop_call_kind)
+                returned_callee_kind = self._returned_callable_kind(node.func)
+                if returned_callee_kind is not None:
+                    self._record(node, returned_callee_kind)
                 operator_call_kind = self._operator_process_transform_kind(node)
                 if operator_call_kind:
                     self._record(node, operator_call_kind)
@@ -3031,15 +6165,18 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
 
             def visit_Return(self, node: ast.Return) -> None:
                 if node.value is not None:
+                    self._record_dynamic_callable_escape(node, node.value)
                     self._record_binding_source_exposure(node, node.value)
                     self.visit(node.value)
 
             def visit_Yield(self, node: ast.Yield) -> None:
                 if node.value is not None:
+                    self._record_dynamic_callable_escape(node, node.value)
                     self._record_binding_source_exposure(node, node.value)
                     self.visit(node.value)
 
             def visit_YieldFrom(self, node: ast.YieldFrom) -> None:
+                self._record_dynamic_callable_escape(node, node.value)
                 self._record_binding_source_exposure(node, node.value)
                 self.visit(node.value)
 
@@ -3054,7 +6191,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     module_aliases,
                     aliases,
                 )
-                if call_kind:
+                if call_kind and call_kind != DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
                     self._record(node, call_kind)
                 self.generic_visit(node)
 
@@ -3079,7 +6216,7 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     builtin_getattr_owners=self._builtins_aliases(),
                     builtin_getattr_aliases=self._builtin_getattr_aliases(),
                 )
-                if call_kind:
+                if call_kind and call_kind != DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
                     self._record(node, call_kind)
 
             def visit_Subscript(self, node: ast.Subscript) -> None:
@@ -3091,12 +6228,226 @@ def _direct_execution_records(paths: list[Path] | None = None) -> Counter[tuple[
                     self._module_aliases(),
                     self._callable_aliases(),
                 )
-                if call_kind:
+                if call_kind and call_kind != DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
                     self._record(node, call_kind)
                 self.generic_visit(node)
 
         Visitor().visit(tree)
     return records
+
+
+def _event_loop_policy_receiver(
+    node: ast.AST | None,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+) -> bool:
+    if isinstance(node, ast.NamedExpr):
+        return _event_loop_policy_receiver(
+            node.value,
+            module_aliases,
+            function_aliases,
+        )
+    if isinstance(node, ast.Call):
+        factory_reference = _dotted_name(node.func)
+        if function_aliases.get(factory_reference or "") == (
+            "asyncio.get_event_loop_policy"
+        ):
+            return True
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get_event_loop_policy"
+            and _module_reference_kind(node.func.value, module_aliases) == "asyncio"
+        ):
+            return True
+    reference = _dotted_name(node)
+    if reference is None:
+        return False
+    leaf = reference.rpartition(".")[2].lower()
+    return leaf in {"event_loop_policy", "policy"} or leaf.endswith(
+        "_loop_policy"
+    )
+
+
+def _asyncio_runner_receiver(
+    node: ast.AST | None,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+) -> bool:
+    if isinstance(node, ast.NamedExpr):
+        return _asyncio_runner_receiver(
+            node.value,
+            module_aliases,
+            function_aliases,
+        )
+    if isinstance(node, ast.IfExp):
+        return _asyncio_runner_receiver(
+            node.body,
+            module_aliases,
+            function_aliases,
+        ) or _asyncio_runner_receiver(
+            node.orelse,
+            module_aliases,
+            function_aliases,
+        )
+    if isinstance(node, ast.BoolOp):
+        return any(
+            _asyncio_runner_receiver(candidate, module_aliases, function_aliases)
+            for candidate in node.values
+        )
+    if _module_reference_kind(node, module_aliases) == "asyncio_runner":
+        return True
+    if not isinstance(node, ast.Call):
+        return False
+    factory_reference = _dotted_name(node.func)
+    if function_aliases.get(factory_reference or "") == "asyncio.Runner":
+        return True
+    return (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr == "Runner"
+        and _module_reference_kind(node.func.value, module_aliases) == "asyncio"
+    )
+
+
+def _asyncio_task_receiver(
+    node: ast.AST | None,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+) -> bool:
+    if isinstance(node, ast.NamedExpr):
+        return _asyncio_task_receiver(
+            node.value,
+            module_aliases,
+            function_aliases,
+        )
+    if isinstance(node, ast.IfExp):
+        return _asyncio_task_receiver(
+            node.body,
+            module_aliases,
+            function_aliases,
+        ) or _asyncio_task_receiver(
+            node.orelse,
+            module_aliases,
+            function_aliases,
+        )
+    if isinstance(node, ast.BoolOp):
+        return any(
+            _asyncio_task_receiver(candidate, module_aliases, function_aliases)
+            for candidate in node.values
+        )
+    if _module_reference_kind(node, module_aliases) == "asyncio_task":
+        return True
+    if not isinstance(node, ast.Call):
+        return False
+    factory_reference = _dotted_name(node.func)
+    if function_aliases.get(factory_reference or "") == "asyncio.current_task":
+        return True
+    return (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr == "current_task"
+        and _module_reference_kind(node.func.value, module_aliases) == "asyncio"
+    )
+
+
+def _event_loop_receiver(
+    node: ast.AST | None,
+    module_aliases: dict[str, set[str]],
+    function_aliases: dict[str, str],
+) -> bool:
+    if isinstance(node, ast.NamedExpr):
+        return _event_loop_receiver(node.value, module_aliases, function_aliases)
+    if isinstance(node, ast.IfExp):
+        return _event_loop_receiver(
+            node.body,
+            module_aliases,
+            function_aliases,
+        ) or _event_loop_receiver(node.orelse, module_aliases, function_aliases)
+    if isinstance(node, ast.BoolOp):
+        return any(
+            _event_loop_receiver(candidate, module_aliases, function_aliases)
+            for candidate in node.values
+        )
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return any(
+            _event_loop_receiver(candidate, module_aliases, function_aliases)
+            for candidate in node.elts
+        )
+    if isinstance(node, ast.Dict):
+        return any(
+            _event_loop_receiver(candidate, module_aliases, function_aliases)
+            for candidate in (*node.keys, *node.values)
+            if candidate is not None
+        )
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+        return _event_loop_receiver(node.elt, module_aliases, function_aliases)
+    if isinstance(node, ast.DictComp):
+        return _event_loop_receiver(
+            node.key,
+            module_aliases,
+            function_aliases,
+        ) or _event_loop_receiver(node.value, module_aliases, function_aliases)
+    if _module_reference_kind(node, module_aliases) == "asyncio":
+        return True
+    if isinstance(node, ast.Call):
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get_loop"
+            and (
+                _asyncio_runner_receiver(
+                    node.func.value,
+                    module_aliases,
+                    function_aliases,
+                )
+                or _asyncio_task_receiver(
+                    node.func.value,
+                    module_aliases,
+                    function_aliases,
+                )
+            )
+        ):
+            return True
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in VALUE_FLOW_METHOD_NAMES
+            and _event_loop_receiver(
+                node.func.value,
+                module_aliases,
+                function_aliases,
+            )
+        ):
+            return True
+        factory_reference = _dotted_name(node.func)
+        imported_reference = function_aliases.get(factory_reference or "")
+        if imported_reference in {
+            "asyncio.get_event_loop",
+            "asyncio.get_running_loop",
+            "asyncio.new_event_loop",
+        }:
+            return True
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr
+            in {"get_event_loop", "get_running_loop", "new_event_loop"}
+            and (
+                _module_reference_kind(node.func.value, module_aliases) == "asyncio"
+                or _event_loop_policy_receiver(
+                    node.func.value,
+                    module_aliases,
+                    function_aliases,
+                )
+            )
+        ):
+            return True
+    if isinstance(node, ast.Subscript):
+        return _event_loop_receiver(node.value, module_aliases, function_aliases)
+    reference = _dotted_name(node)
+    if reference is None:
+        return False
+    leaf = reference.rpartition(".")[2].lower()
+    return (
+        leaf in {"event_loop", "event_loops", "loop", "loops", "running_loop"}
+        or leaf.endswith("_loop")
+        or leaf.endswith("_loops")
+    )
 
 
 def _direct_call_kind(
@@ -3112,8 +6463,29 @@ def _direct_call_kind(
     builtin_getattr_aliases: set[str] | frozenset[str] = frozenset(),
 ) -> str | None:
     function = node.func
+    function_reference = _dotted_name(function)
+    if function_reference is None and isinstance(function, ast.Attribute):
+        receiver_reference = (
+            _static_receiver_call_reference(function.value)
+            if isinstance(function.value, ast.Call)
+            else None
+        )
+        if receiver_reference is not None:
+            function_reference = f"{receiver_reference}.{function.attr}"
+    if function_reference in callable_aliases:
+        return callable_aliases[function_reference]
     if isinstance(function, ast.Attribute) and function.attr == "run_tcl":
         return "run_tcl"
+    if (
+        isinstance(function, ast.Attribute)
+        and function.attr in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
+        and _event_loop_receiver(
+            function.value,
+            module_aliases,
+            function_aliases,
+        )
+    ):
+        return f"asyncio.{function.attr}"
     if isinstance(function, (ast.Call, ast.NamedExpr, ast.Subscript)):
         dynamic_kind = _callable_reference_kind(
             function,
@@ -3128,6 +6500,16 @@ def _direct_call_kind(
         )
         if dynamic_kind:
             return dynamic_kind
+        owner_node, attribute = _static_attribute_lookup(
+            function,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+            vars_references=vars_references,
+        )
+        if owner_node is not None and attribute == "*":
+            return "asyncio.*"
     if isinstance(function, ast.Name) and function.id in callable_aliases:
         return callable_aliases[function.id]
     if isinstance(function, ast.Name) and function.id in function_aliases:
@@ -3154,6 +6536,15 @@ def _direct_call_kind(
         attribute = str(node.args[1].value)
         if attribute == "run_tcl":
             return "run_tcl_dynamic"
+        if (
+            attribute in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
+            and _event_loop_receiver(
+                node.args[0],
+                module_aliases,
+                function_aliases,
+            )
+        ):
+            return f"asyncio.{attribute}"
         owner = _dotted_name(node.args[0])
         if owner is not None:
             for module_kind, aliases in module_aliases.items():
@@ -3192,6 +6583,16 @@ def _callable_reference_kind(
         return module_dict_kind
     if isinstance(node, ast.Attribute) and node.attr == "run_tcl":
         return "run_tcl_alias"
+    if (
+        isinstance(node, ast.Attribute)
+        and node.attr in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
+        and _event_loop_receiver(
+            node.value,
+            module_aliases,
+            function_aliases,
+        )
+    ):
+        return f"asyncio.{node.attr}"
     if isinstance(node, ast.NamedExpr):
         return _callable_reference_kind(
             node.value,
@@ -3204,6 +6605,48 @@ def _callable_reference_kind(
             builtin_getattr_owners=builtin_getattr_owners,
             builtin_getattr_aliases=builtin_getattr_aliases,
         )
+    if isinstance(node, ast.Call):
+        constructor = _dotted_name(node.func)
+        if (
+            constructor is not None
+            and callable_aliases.get(f"{constructor}.__call__")
+            == DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+        ):
+            return DYNAMIC_ATTRIBUTE_CALLABLE_KIND
+    reference = _dotted_name(node)
+    if reference in callable_aliases:
+        return callable_aliases[reference]
+    projected_source: ast.AST | None = None
+    if isinstance(node, ast.Subscript):
+        projected_source = node.value
+    elif (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in VALUE_FLOW_METHOD_NAMES
+    ):
+        projected_source = node.func.value
+    elif (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "next"
+        and len(node.args) == 1
+        and not node.keywords
+    ):
+        projected_source = node.args[0]
+    if projected_source is not None:
+        projected_kind = _callable_reference_kind(
+            projected_source,
+            module_aliases,
+            function_aliases,
+            callable_aliases,
+            vars_references,
+            builtin_getattr_available=builtin_getattr_available,
+            builtin_object_available=builtin_object_available,
+            builtin_getattr_owners=builtin_getattr_owners,
+            builtin_getattr_aliases=builtin_getattr_aliases,
+        )
+        if projected_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+            return projected_kind
     if isinstance(node, ast.Name) and node.id in callable_aliases:
         return callable_aliases[node.id]
     if isinstance(node, ast.Name) and node.id in function_aliases:
@@ -3226,6 +6669,15 @@ def _callable_reference_kind(
     if owner_node is not None and attribute is not None:
         if attribute == "run_tcl":
             return "run_tcl_dynamic"
+        if (
+            attribute in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
+            and _event_loop_receiver(
+                owner_node,
+                module_aliases,
+                function_aliases,
+            )
+        ):
+            return f"asyncio.{attribute}"
         owner = _dotted_name(owner_node)
         if owner is not None:
             for module_kind, aliases in module_aliases.items():
@@ -3613,6 +7065,8 @@ def _imported_process_module_kind(module_name: str | None) -> str | None:
 
 
 def _normalized_execution_kind(call_kind: str) -> str:
+    if call_kind == DYNAMIC_ATTRIBUTE_CALLABLE_KIND:
+        return "asyncio.*"
     return "run_tcl" if call_kind.startswith("run_tcl") else call_kind
 
 
@@ -3625,7 +7079,9 @@ def _approved_process_call_kind(value: str) -> bool:
             ("exec", "spawn", "posix_spawn")
         )
     if module == "asyncio":
-        return name.startswith("create_subprocess_")
+        return name.startswith(
+            "create_subprocess_"
+        ) or name in ASYNCIO_EVENT_LOOP_PROCESS_CALL_NAMES
     if module == "pty":
         return name in PTY_PROCESS_CALL_NAMES
     return False
@@ -3869,6 +7325,584 @@ def test_direct_call_classifier_detects_common_alias_and_dynamic_bypasses(
             "    await getattr(asyncio, 'subprocess').create_subprocess_exec(*argv)\n",
             "asyncio.create_subprocess_exec",
         ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await asyncio.get_running_loop().subprocess_exec(protocol_factory, *argv)\n",
+            "asyncio.subprocess_exec",
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = asyncio.get_running_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n",
+            "asyncio.subprocess_exec",
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    bucket = [asyncio.get_running_loop()]\n"
+            "    engine = bucket[0]\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n",
+            "asyncio.subprocess_exec",
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine, = (asyncio.get_running_loop(),)\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n",
+            "asyncio.subprocess_exec",
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await asyncio.get_event_loop_policy().get_event_loop().subprocess_exec(\n"
+            "        protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.subprocess_exec",
+        ),
+        (
+            "async def bypass(loop, protocol_factory, argv):\n"
+            "    await loop.subprocess_exec(protocol_factory, *argv)\n",
+            "asyncio.subprocess_exec",
+        ),
+        (
+            "async def bypass(loop, protocol_factory, argv):\n"
+            "    await loop._make_subprocess_transport(\n"
+            "        protocol_factory, argv, False, None, None, None, 0\n"
+            "    )\n",
+            "asyncio._make_subprocess_transport",
+        ),
+        (
+            "async def bypass(loop, protocol_factory, command):\n"
+            "    await getattr(loop, 'subprocess_shell')(protocol_factory, command)\n",
+            "asyncio.subprocess_shell",
+        ),
+        (
+            "async def bypass(loop, protocol_factory, argv):\n"
+            "    name = 'subprocess_exec'\n"
+            "    await getattr(loop, name)(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, command):\n"
+            "    await loop.__getattribute__(name)(protocol_factory, command)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, protocol_factory, argv):\n"
+            "    name = 'subprocess_exec'\n"
+            "    launch = getattr(loop, name)\n"
+            "    forwarded = launch\n"
+            "    await forwarded(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, enabled, noop, name, protocol_factory, argv):\n"
+            "    launch = getattr(loop, name) if enabled else noop\n"
+            "    await launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, noop, name, protocol_factory, argv):\n"
+            "    launch = noop or getattr(loop, name)\n"
+            "    await launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, enabled, noop, name, protocol_factory, argv):\n"
+            "    if enabled:\n"
+            "        launch = getattr(loop, name)\n"
+            "    else:\n"
+            "        launch = noop\n"
+            "    await launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "import operator\n"
+            "def bypass(loop, name, protocol_factory, argv):\n"
+            "    operator.methodcaller(name, protocol_factory, *argv)(loop)\n",
+            "asyncio.*",
+        ),
+        (
+            "import operator\n"
+            "def bypass(loop, name, protocol_factory, argv):\n"
+            "    operator.attrgetter(name)(loop)(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "import operator\n"
+            "def bypass(loop, name, protocol_factory, argv):\n"
+            "    launch = operator.methodcaller(name, protocol_factory, *argv)\n"
+            "    forwarded = launch\n"
+            "    forwarded(loop)\n",
+            "asyncio.*",
+        ),
+        (
+            "import operator\n"
+            "def bypass(loop, name, protocol_factory, argv):\n"
+            "    getter = operator.attrgetter(name)\n"
+            "    forwarded = getter\n"
+            "    forwarded(loop)(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launches = [getattr(loop, name)]\n"
+            "    await launches[0](protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launches = {'go': getattr(loop, name)}\n"
+            "    await launches.get('go')(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launches = [getattr(loop, name) for _ in range(1)]\n"
+            "    await launches[0](protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launches = {getattr(loop, name) for _ in range(1)}\n"
+            "    await launches.pop()(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launches = {key: getattr(loop, name) for key in ['go']}\n"
+            "    await launches.get('go')(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launches = (getattr(loop, name) for _ in range(1))\n"
+            "    await next(launches)(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launches = []\n"
+            "    launches.append(getattr(loop, name))\n"
+            "    await launches[0](protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launches = []\n"
+            "    launches += [getattr(loop, name)]\n"
+            "    await launches[0](protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launches = {}\n"
+            "    launches.update(go=getattr(loop, name))\n"
+            "    await launches.get('go')(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(holder, loop, name, protocol_factory, argv):\n"
+            "    holder.launch = getattr(loop, name)\n"
+            "    await holder.launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(holder, loop, name, protocol_factory, argv):\n"
+            "    holder.launch: object = getattr(loop, name)\n"
+            "    await holder.launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "import functools\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launch = functools.partial(getattr(loop, name), protocol_factory)\n"
+            "    await launch(*argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "import functools as ft\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launch = ft.partial(getattr(loop, name), protocol_factory)\n"
+            "    await launch(*argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "from functools import partial as bind\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launch = bind(getattr(loop, name), protocol_factory)\n"
+            "    await launch(*argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "from functools import partial\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    bind = partial\n"
+            "    launch = bind(getattr(loop, name), protocol_factory)\n"
+            "    await launch(*argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "def maker(loop, name):\n"
+            "    launch = getattr(loop, name)\n"
+            "    return launch\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await maker(loop, name)(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "def maker(loop, name):\n"
+            "    return [getattr(loop, name)]\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await maker(loop, name)[0](protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "def identity(value):\n"
+            "    return value\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launch = identity(getattr(loop, name))\n"
+            "    await launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(callback):\n"
+            "    def inner(*args):\n"
+            "        return callback(*args)\n"
+            "    return inner\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(getattr(loop, name))(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(callback):\n"
+            "    def middle():\n"
+            "        def inner(*args):\n"
+            "            return callback(*args)\n"
+            "        return inner\n"
+            "    return middle()\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(getattr(loop, name))(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    for launch in [getattr(loop, name)]:\n"
+            "        await launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(source, loop, name, protocol_factory, argv):\n"
+            "    launches = (getattr(loop, name) async for _ in source)\n"
+            "    async for launch in launches:\n"
+            "        await launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "def makers(loop, name):\n"
+            "    yield getattr(loop, name)\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(callback, *args):\n"
+            "    return callback(*args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(holder, callback, *args):\n"
+            "    holder.cb = callback\n"
+            "    return holder.cb(*args)\n"
+            "async def bypass(holder, loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        holder, getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "import operator\n"
+            "def invoke(callback, *args):\n"
+            "    return operator.call(callback, *args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(callback, *args):\n"
+            "    from operator import call\n"
+            "    return call(callback, *args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(callback, *args):\n"
+            "    return next(map(lambda fn: fn(*args), [callback]))\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "import itertools\n"
+            "def invoke(callback, *args):\n"
+            "    return next(itertools.starmap(callback, [args]))\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(callback, *args):\n"
+            "    from itertools import starmap\n"
+            "    return next(starmap(callback, [args]))\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "import itertools\n"
+            "def invoke(callback, *args):\n"
+            "    values = itertools.accumulate(args, callback)\n"
+            "    next(values)\n"
+            "    return next(values)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "import itertools\n"
+            "def invoke(callback, *args):\n"
+            "    values = itertools.accumulate(args, **{'func': callback})\n"
+            "    return next(itertools.islice(values, 1, None))\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(callback, *args):\n"
+            "    forwarded = callback\n"
+            "    return forwarded(*args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(callback, *args):\n"
+            "    return callback.__call__(*args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "invoke = lambda callback, *args: callback(*args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(*args):\n"
+            "    return args[0](*args[1:])\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(**kwargs):\n"
+            "    return kwargs['callback'](*kwargs['args'])\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        callback=getattr(loop, name),\n"
+            "        args=(protocol_factory, *argv),\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "def invoke(callback, *args):\n"
+            "    return callback(*args)\n"
+            "forward = invoke\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await forward(\n"
+            "        getattr(loop, name), protocol_factory, argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "class Helpers:\n"
+            "    @staticmethod\n"
+            "    def invoke(callback, *args):\n"
+            "        return callback(*args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await Helpers.invoke(\n"
+            "        getattr(loop, name), protocol_factory, argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "class Helpers:\n"
+            "    def invoke(self, callback, *args):\n"
+            "        return callback(*args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await Helpers().invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "class Helpers:\n"
+            "    def invoke(self, callback, *args):\n"
+            "        return callback(*args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    helper = Helpers()\n"
+            "    await helper.invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "class Helpers:\n"
+            "    def invoke(self, callback, *args):\n"
+            "        return callback(*args)\n"
+            "def make_helper():\n"
+            "    return Helpers()\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    helper = make_helper()\n"
+            "    await helper.invoke(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "class Invoke:\n"
+            "    def __call__(self, callback, *args):\n"
+            "        return callback(*args)\n"
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    await Invoke()(\n"
+            "        getattr(loop, name), protocol_factory, *argv\n"
+            "    )\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, name, protocol_factory, argv):\n"
+            "    launch, = (getattr(loop, name),)\n"
+            "    await launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "async def bypass(loop, enabled, name, protocol_factory, argv):\n"
+            "    if enabled:\n"
+            "        launch = getattr(loop, name)\n"
+            "    else:\n"
+            "        del launch\n"
+            "    await launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "name = 'subprocess_exec'\n"
+            "class Launcher:\n"
+            "    launch = getattr(object, name)\n"
+            "def bypass(protocol_factory, argv):\n"
+            "    Launcher.launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "name = 'subprocess_exec'\n"
+            "class Launcher:\n"
+            "    launch = getattr(object, name)\n"
+            "def bypass(protocol_factory, argv):\n"
+            "    instance = Launcher()\n"
+            "    instance.launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "name = 'subprocess_exec'\n"
+            "class Launcher:\n"
+            "    launch = getattr(object, name)\n"
+            "    def bypass(self, protocol_factory, argv):\n"
+            "        self.launch(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "name = 'subprocess_exec'\n"
+            "class Launcher:\n"
+            "    __call__ = getattr(object, name)\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await Launcher()(protocol_factory, *argv)\n",
+            "asyncio.*",
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, command):\n"
+            "    await asyncio.get_running_loop().subprocess_shell(protocol_factory, command)\n",
+            "asyncio.subprocess_shell",
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    launch = getattr(asyncio.get_running_loop(), 'subprocess_exec')\n"
+            "    await launch(protocol_factory, *argv)\n",
+            "asyncio.subprocess_exec",
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, command):\n"
+            "    await getattr(asyncio.get_running_loop(), 'subprocess_shell')(protocol_factory, command)\n",
+            "asyncio.subprocess_shell",
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    loop = asyncio.get_running_loop()\n"
+            "    await loop.subprocess_exec(protocol_factory, *argv)\n",
+            "asyncio.subprocess_exec",
+        ),
+        (
+            "from asyncio import get_running_loop as current_loop\n"
+            "async def bypass(protocol_factory, command):\n"
+            "    loop = current_loop()\n"
+            "    await getattr(loop, 'subprocess_shell')(protocol_factory, command)\n",
+            "asyncio.subprocess_shell",
+        ),
+        (
+            "from asyncio.events import get_running_loop as current_loop\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    loop = current_loop()\n"
+            "    await loop.subprocess_exec(protocol_factory, *argv)\n",
+            "asyncio.subprocess_exec",
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    loop_factory = asyncio.get_running_loop\n"
+            "    loop = loop_factory()\n"
+            "    await loop.subprocess_exec(protocol_factory, *argv)\n",
+            "asyncio.subprocess_exec",
+        ),
     ],
 )
 def test_execution_scanner_propagates_secondary_and_named_expression_aliases(
@@ -3882,6 +7916,898 @@ def test_execution_scanner_propagates_secondary_and_named_expression_aliases(
     records = _direct_execution_records([path])
 
     assert sum(count for (*_, kind), count in records.items() if kind == expected_kind) >= 1
+
+
+def test_execution_scanner_keeps_callback_contracts_qualified_by_owner(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "qualified_callback_contracts.py"
+    path.write_text(
+        "class Executes:\n"
+        "    @staticmethod\n"
+        "    def invoke(callback, *args):\n"
+        "        return callback(*args)\n"
+        "class Stores:\n"
+        "    @staticmethod\n"
+        "    def invoke(value):\n"
+        "        return value\n"
+        "def safe(obj, name):\n"
+        "    Stores.invoke(getattr(obj, name))\n"
+        "    helper = Stores()\n"
+        "    helper.invoke(getattr(obj, name))\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+
+    assert _direct_execution_records([path]) == Counter()
+
+
+def test_execution_scanner_clears_reassigned_callback_contract_provenance(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "reassigned_callback_contract.py"
+    path.write_text(
+        "def invoke(callback, noop, *args):\n"
+        "    callback = noop\n"
+        "    return callback(*args)\n"
+        "async def safe(loop, name, noop, protocol_factory, argv):\n"
+        "    return await invoke(\n"
+        "        getattr(loop, name), noop, protocol_factory, *argv\n"
+        "    )\n",
+        encoding="utf-8",
+    )
+
+    assert _direct_execution_records([path]) == Counter()
+
+
+@pytest.mark.parametrize(
+    "mapping_expression",
+    [
+        "{'func': callback} | {'func': noop}",
+        "{'func': callback, **{'func': noop}}",
+        "dict({'func': callback}, func=noop)",
+    ],
+)
+def test_execution_scanner_honors_rightmost_static_keyword_mapping_values(
+    tmp_path: Path,
+    mapping_expression: str,
+) -> None:
+    path = tmp_path / "overridden_callback_mapping.py"
+    path.write_text(
+        "import itertools\n"
+        "def invoke(callback, noop, values):\n"
+        "    return list(itertools.accumulate(\n"
+        f"        values, **({mapping_expression})\n"
+        "    ))\n"
+        "def safe(loop, name, noop, values):\n"
+        "    return invoke(getattr(loop, name), noop, values)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import itertools\n"
+            "def dict(**kwargs):\n"
+            "    return {}\n"
+            "def invoke(callback, values):\n"
+            "    return list(itertools.accumulate(\n"
+            "        values, **dict(func=callback)\n"
+            "    ))\n"
+            "def safe(loop, name, values):\n"
+            "    return invoke(getattr(loop, name), values)\n"
+        ),
+        (
+            "import itertools\n"
+            "def invoke(builtins, callback, values):\n"
+            "    return list(itertools.accumulate(\n"
+            "        values, **builtins.dict(func=callback)\n"
+            "    ))\n"
+            "def safe(fake_builtins, loop, name, values):\n"
+            "    return invoke(fake_builtins, getattr(loop, name), values)\n"
+        ),
+    ],
+)
+def test_execution_scanner_respects_builtin_dict_shadowing(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "shadowed_builtin_dict.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import itertools\n"
+            "def invoke(callback, values):\n"
+            "    return list(itertools.accumulate(\n"
+            "        values, **dict(func=callback)\n"
+            "    ))\n"
+            "def bypass(loop, name, values):\n"
+            "    return invoke(getattr(loop, name), values)\n"
+        ),
+        (
+            "import builtins, itertools\n"
+            "def invoke(callback, values):\n"
+            "    return list(itertools.accumulate(\n"
+            "        values, **builtins.dict(func=callback)\n"
+            "    ))\n"
+            "def bypass(loop, name, values):\n"
+            "    return invoke(getattr(loop, name), values)\n"
+        ),
+        (
+            "import itertools\n"
+            "from builtins import dict as make_mapping\n"
+            "def invoke(callback, values):\n"
+            "    return list(itertools.accumulate(\n"
+            "        values, **make_mapping(func=callback)\n"
+            "    ))\n"
+            "def bypass(loop, name, values):\n"
+            "    return invoke(getattr(loop, name), values)\n"
+        ),
+        (
+            "import itertools\n"
+            "def invoke(callback, overrides, values):\n"
+            "    return list(itertools.accumulate(\n"
+            "        values, **{'func': callback, **overrides}\n"
+            "    ))\n"
+            "def bypass(loop, name, overrides, values):\n"
+            "    return invoke(getattr(loop, name), overrides, values)\n"
+        ),
+        (
+            "import itertools\n"
+            "def invoke(callback, noop, enabled, values):\n"
+            "    return list(itertools.accumulate(\n"
+            "        values, **(\n"
+            "            {'func': callback}\n"
+            "            | ({'func': noop} if enabled else {})\n"
+            "        )\n"
+            "    ))\n"
+            "def bypass(loop, name, noop, enabled, values):\n"
+            "    return invoke(getattr(loop, name), noop, enabled, values)\n"
+        ),
+    ],
+)
+def test_execution_scanner_preserves_live_keyword_mapping_callbacks(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "live_callback_mapping.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+def test_execution_scanner_ignores_process_named_methods_on_non_loop_receivers(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "non_loop_process_method.py"
+    path.write_text(
+        "class Renderer:\n"
+        "    @staticmethod\n"
+        "    def subprocess_exec():\n"
+        "        return 'rendered'\n"
+        "def safe():\n"
+        "    renderer = Renderer()\n"
+        "    return renderer.subprocess_exec()\n",
+        encoding="utf-8",
+    )
+
+    assert _direct_execution_records([path]) == Counter()
+
+
+def test_execution_scanner_does_not_treat_local_event_loop_access_as_launch(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "local_event_loop.py"
+    path.write_text(
+        "import asyncio\n"
+        "async def monotonic_time():\n"
+        "    loop = asyncio.get_running_loop()\n"
+        "    return loop.time()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records)
+
+
+def test_execution_scanner_does_not_execute_dynamic_attribute_data_flow(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "dynamic_attribute_data.py"
+    path.write_text(
+        "name = 'upper'\n"
+        "class Renderer:\n"
+        "    attribute = getattr(str, name)\n"
+        "exported = None\n"
+        "def export_attribute(value, name):\n"
+        "    global exported\n"
+        "    exported = getattr(value, name)\n"
+        "def render_attribute(value, name):\n"
+        "    attribute = getattr(value, name)\n"
+        "    return str(attribute)\n"
+        "def preserve_callback(callback):\n"
+        "    return next(map(lambda fn: str(fn), [callback]))\n"
+        "def inspect_callback(value, name):\n"
+        "    return preserve_callback(getattr(value, name))\n"
+        "def map(callback, values):\n"
+        "    return values\n"
+        "def preserve_with_shadow(callback, values):\n"
+        "    return map(callback, values)\n"
+        "def inspect_shadowed_map(value, name):\n"
+        "    return preserve_with_shadow(getattr(value, name), [])\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records)
+
+
+def test_execution_scanner_drops_reassigned_class_dynamic_callable_markers(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "reassigned_class_attribute.py"
+    path.write_text(
+        "name = 'subprocess_exec'\n"
+        "class FormerLauncher:\n"
+        "    launch = getattr(object, name)\n"
+        "    launch = lambda *args: None\n"
+        "class Unrelated:\n"
+        "    launch = lambda *args: None\n"
+        "FormerLauncher.launch()\n"
+        "Unrelated.launch()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records)
+
+
+def test_execution_scanner_ignores_relative_functools_partial_import(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "relative_partial.py"
+    path.write_text(
+        "from .functools import partial\n"
+        "def render(value, name):\n"
+        "    selected = partial(getattr(value, name))\n"
+        "    return selected()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records)
+
+
+def test_execution_scanner_clears_dynamic_marker_in_unconditional_finally(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "finally_reassignment.py"
+    path.write_text(
+        "def bypass(loop, name, noop):\n"
+        "    launch = getattr(loop, name)\n"
+        "    try:\n"
+        "        work()\n"
+        "    finally:\n"
+        "        launch = noop\n"
+        "    launch()\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio\n"
+            "async def bypass(holder, protocol_factory, argv):\n"
+            "    holder.loop = asyncio.get_running_loop()\n"
+            "    await holder.loop.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    (loop,) = (asyncio.get_running_loop(),)\n"
+            "    await loop.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    loops = [asyncio.get_running_loop()]\n"
+            "    await loops[0].subprocess_exec(protocol_factory, *argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_records_unpropagated_event_loop_bindings(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "unpropagated_event_loop.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind.startswith("asyncio.") for *_, kind in records)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio\n"
+            "async def bypass(holder, protocol_factory, argv):\n"
+            "    holder.engine = asyncio.get_running_loop()\n"
+            "    await holder.engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(holder, protocol_factory, argv):\n"
+            "    holder.engine: object = asyncio.get_running_loop()\n"
+            "    await holder.engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(holder, protocol_factory, argv):\n"
+            "    holder['engine'] = asyncio.get_running_loop()\n"
+            "    await holder['engine'].subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(holder, protocol_factory, argv):\n"
+            "    (holder.engine,) = (asyncio.get_running_loop(),)\n"
+            "    await holder.engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_preserves_qualified_event_loop_bindings(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "qualified_event_loop_binding.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "asyncio.subprocess_exec" for *_, kind in records), records
+
+
+def test_execution_scanner_clears_reassigned_qualified_event_loop_bindings(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "reassigned_qualified_event_loop.py"
+    path.write_text(
+        "import asyncio\n"
+        "async def safe(holder, renderer, protocol_factory, argv):\n"
+        "    holder.engine = asyncio.get_running_loop()\n"
+        "    holder.engine = renderer\n"
+        "    await holder.engine.subprocess_exec(protocol_factory, *argv)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio\n"
+            "async def invoke(receiver, protocol_factory, argv):\n"
+            "    await receiver.subprocess_exec(protocol_factory, *argv)\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await invoke(asyncio.get_running_loop(), protocol_factory, argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def invoke(receiver, protocol_factory, argv):\n"
+            "    await receiver.subprocess_exec(protocol_factory, *argv)\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await invoke(\n"
+            "        receiver=asyncio.get_running_loop(),\n"
+            "        protocol_factory=protocol_factory,\n"
+            "        argv=argv,\n"
+            "    )\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def invoke(receiver, protocol_factory, argv):\n"
+            "    await receiver.subprocess_exec(protocol_factory, *argv)\n"
+            "forward = invoke\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await forward(asyncio.get_running_loop(), protocol_factory, argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "class Helpers:\n"
+            "    async def invoke(self, receiver, protocol_factory, argv):\n"
+            "        await receiver.subprocess_exec(protocol_factory, *argv)\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await Helpers().invoke(\n"
+            "        asyncio.get_running_loop(), protocol_factory, argv\n"
+            "    )\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def launch(receiver, protocol_factory, argv):\n"
+            "    engine = receiver\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+            "async def relay(target, protocol_factory, argv):\n"
+            "    await launch(target, protocol_factory, argv)\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await relay(asyncio.get_running_loop(), protocol_factory, argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_event_loop_receivers_into_helpers(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "event_loop_helper.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "asyncio.subprocess_exec" for *_, kind in records), records
+
+
+def test_execution_scanner_ignores_non_event_loop_helper_receivers(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "non_event_loop_helper.py"
+    path.write_text(
+        "async def invoke(receiver, protocol_factory, argv):\n"
+        "    await receiver.subprocess_exec(protocol_factory, *argv)\n"
+        "async def safe(renderer, protocol_factory, argv):\n"
+        "    await invoke(renderer, protocol_factory, argv)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio\n"
+            "def identity(receiver):\n"
+            "    return receiver\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = identity(asyncio.get_running_loop())\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "def identity(receiver):\n"
+            "    return receiver\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await identity(asyncio.get_running_loop()).subprocess_exec(\n"
+            "        protocol_factory, *argv\n"
+            "    )\n"
+        ),
+        (
+            "import asyncio\n"
+            "def identity(receiver):\n"
+            "    return receiver\n"
+            "def relay(value):\n"
+            "    return identity(value)\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = relay(asyncio.get_running_loop())\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "class Helpers:\n"
+            "    def identity(self, receiver):\n"
+            "        return receiver\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = Helpers().identity(asyncio.get_running_loop())\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_returned_event_loop_receivers(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "returned_event_loop.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "asyncio.subprocess_exec" for *_, kind in records), records
+
+
+def test_execution_scanner_ignores_returned_non_event_loop_receivers(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "returned_non_event_loop.py"
+    path.write_text(
+        "def identity(receiver):\n"
+        "    return receiver\n"
+        "async def safe(renderer, protocol_factory, argv):\n"
+        "    engine = identity(renderer)\n"
+        "    await engine.subprocess_exec(protocol_factory, *argv)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = next(iter([asyncio.get_running_loop()]))\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio, builtins\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = builtins.next(\n"
+            "        builtins.iter([asyncio.get_running_loop()])\n"
+            "    )\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_event_loops_through_iterator_extraction(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "iterator_event_loop.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "asyncio.subprocess_exec" for *_, kind in records), records
+
+
+def test_execution_scanner_respects_iterator_builtin_shadowing(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "shadowed_iterator_builtins.py"
+    path.write_text(
+        "import asyncio\n"
+        "def iter(values):\n"
+        "    return values\n"
+        "def next(values):\n"
+        "    return object()\n"
+        "async def safe(protocol_factory, argv):\n"
+        "    engine = next(iter([asyncio.get_running_loop()]))\n"
+        "    await engine.subprocess_exec(protocol_factory, *argv)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    with asyncio.Runner() as runner:\n"
+            "        engine = runner.get_loop()\n"
+            "        await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    runner = asyncio.Runner()\n"
+            "    engine = runner.get_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = asyncio.Runner().get_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "from asyncio import Runner as LoopRunner\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = LoopRunner().get_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_recognizes_asyncio_runner_event_loops(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "asyncio_runner_loop.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "asyncio.subprocess_exec" for *_, kind in records), records
+
+
+def test_execution_scanner_ignores_non_asyncio_runner_get_loop(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "fake_runner_loop.py"
+    path.write_text(
+        "async def safe(runner, protocol_factory, argv):\n"
+        "    engine = runner.get_loop()\n"
+        "    await engine.subprocess_exec(protocol_factory, *argv)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = asyncio.current_task().get_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "from asyncio import current_task as active_task\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = active_task().get_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    task = asyncio.current_task()\n"
+            "    engine = task.get_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_recognizes_asyncio_task_event_loops(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "asyncio_task_loop.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "asyncio.subprocess_exec" for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio.events\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = asyncio.events.get_running_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio.events as async_events\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = async_events.get_running_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "from asyncio import events\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    engine = events.get_running_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "async def bypass(protocol_factory, argv):\n"
+            "    import asyncio.events\n"
+            "    engine = asyncio.events.get_running_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "async def bypass(protocol_factory, argv):\n"
+            "    from asyncio import events as async_events\n"
+            "    engine = async_events.get_running_loop()\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_preserves_asyncio_submodule_imports(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "asyncio_submodule_import.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "asyncio.subprocess_exec" for *_, kind in records), records
+
+
+def test_execution_scanner_respects_shadowed_asyncio_submodule_roots(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "shadowed_asyncio_submodule.py"
+    path.write_text(
+        "import asyncio.events\n"
+        "async def safe(asyncio, protocol_factory, argv):\n"
+        "    engine = asyncio.events.get_running_loop()\n"
+        "    await engine.subprocess_exec(protocol_factory, *argv)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio\n"
+            "class Holder:\n"
+            "    @property\n"
+            "    def engine(self):\n"
+            "        return asyncio.get_running_loop()\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await Holder().engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "class Holder:\n"
+            "    @property\n"
+            "    def engine(self):\n"
+            "        return asyncio.get_running_loop()\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    holder = Holder()\n"
+            "    engine = holder.engine\n"
+            "    await engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "def identity(value):\n"
+            "    return value\n"
+            "class Holder:\n"
+            "    @property\n"
+            "    def engine(self):\n"
+            "        return identity(asyncio.get_running_loop())\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await Holder().engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_event_loops_from_property_getters(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "event_loop_property.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "asyncio.subprocess_exec" for *_, kind in records), records
+
+
+def test_execution_scanner_ignores_non_event_loop_property_getters(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "non_event_loop_property.py"
+    path.write_text(
+        "class Holder:\n"
+        "    @property\n"
+        "    def engine(self):\n"
+        "        return object()\n"
+        "async def safe(protocol_factory, argv):\n"
+        "    await Holder().engine.subprocess_exec(protocol_factory, *argv)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import asyncio\n"
+            "import functools\n"
+            "class Holder:\n"
+            "    @functools.cached_property\n"
+            "    def engine(self):\n"
+            "        return asyncio.get_running_loop()\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await Holder().engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "from functools import cached_property\n"
+            "class Holder:\n"
+            "    @cached_property\n"
+            "    def engine(self):\n"
+            "        return asyncio.get_running_loop()\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await Holder().engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+        (
+            "import asyncio\n"
+            "import functools as tools\n"
+            "class Holder:\n"
+            "    @tools.cached_property\n"
+            "    def engine(self):\n"
+            "        return asyncio.get_running_loop()\n"
+            "async def bypass(protocol_factory, argv):\n"
+            "    await Holder().engine.subprocess_exec(protocol_factory, *argv)\n"
+        ),
+    ],
+)
+def test_execution_scanner_propagates_event_loops_from_cached_properties(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "event_loop_cached_property.py"
+    path.write_text(source, encoding="utf-8")
+
+    records = _direct_execution_records([path])
+
+    assert any(kind == "asyncio.subprocess_exec" for *_, kind in records), records
+
+
+def test_execution_scanner_ignores_untrusted_cached_property_decorators(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "untrusted_cached_property.py"
+    path.write_text(
+        "import asyncio\n"
+        "def cached_property(function):\n"
+        "    return function\n"
+        "class Holder:\n"
+        "    @cached_property\n"
+        "    def engine(self):\n"
+        "        return asyncio.get_running_loop()\n"
+        "async def safe(protocol_factory, argv):\n"
+        "    await Holder().engine.subprocess_exec(protocol_factory, *argv)\n",
+        encoding="utf-8",
+    )
+
+    records = _direct_execution_records([path])
+
+    assert not any(kind.startswith("asyncio.") for *_, kind in records), records
 
 
 @pytest.mark.parametrize(

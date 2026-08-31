@@ -1732,11 +1732,179 @@ def test_policy_stage_requirements_conservatively_preserves_session_identity() -
         },
         {
             "type": "object",
+            "properties": {
+                "values": {"type": "array", "items": True},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "prefixItems": [{"type": "string"}],
+                    "unevaluatedItems": True,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {"type": "array", "contains": True},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "contains": True,
+                    "unevaluatedItems": False,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {"type": "array"},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "contains": False,
+                    "minContains": 0,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {"unevaluatedProperties": True},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "properties": {"detail": {"type": "string"}},
+                    "unevaluatedProperties": False,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                    "unevaluatedProperties": {"type": "string"},
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "allOf": [
+                        {"if": True},
+                        {"then": False},
+                    ],
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "allOf": [True],
+                    "if": {"type": "string"},
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "contains": True,
+                    "maxContains": 0,
+                    "required": ["x"],
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {"options": {"if": True}},
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {"if": True, "required": []},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {"if": True, "minProperties": 0},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {"items": True, "maxItems": 0},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
             "properties": {"options": {"type": "object"}},
             "additionalProperties": True,
         },
         {
             "type": ["object", "null"],
+        },
+        {
+            "const": {"output_path": "fixed"},
+        },
+        {
+            "not": {"type": "object", "maxProperties": 0},
+        },
+        {
+            "if": {"type": "object", "maxProperties": 0},
+            "then": False,
+        },
+        {
+            "if": False,
+            "then": False,
+        },
+        {
+            "maxLength": 0,
+        },
+        {
+            "minimum": 0,
+        },
+        {
+            "pattern": "^detail$",
+        },
+        {
+            "if": {"type": "string"},
+            "then": {"type": "string"},
         },
     ],
 )
@@ -1765,6 +1933,346 @@ def test_policy_stage_requirements_leave_bounded_nested_non_path_schema_local() 
             },
             "additionalProperties": False,
         },
+    )
+
+    assert policy_stage_requirements(capability)["managed_path_boundary"] is False
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    ["if", "then", "else", "not", "propertyNames"],
+)
+def test_policy_stage_requirements_ignore_neutral_boolean_meta_schemas(
+    keyword: str,
+) -> None:
+    capability = replace(
+        TOOL_REGISTRY["get_tool_catalog"],
+        input_schema={
+            "type": "object",
+            "properties": {"detail": {"type": "string"}},
+            "additionalProperties": False,
+            keyword: True,
+        },
+    )
+
+    assert policy_stage_requirements(capability)["managed_path_boundary"] is False
+
+
+@pytest.mark.parametrize(
+    "bounded_schema",
+    [
+        {
+            "type": "object",
+            "properties": {"detail": {"type": "string"}},
+            "additionalProperties": False,
+            "unevaluatedProperties": True,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "contains": True,
+                    "unevaluatedItems": True,
+                }
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "prefixItems": [{"type": "string"}],
+                    "unevaluatedItems": True,
+                    "maxItems": 1,
+                }
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "items": True,
+                    "maxItems": 0,
+                }
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "contains": True,
+                    "minContains": 0,
+                    "maxContains": 0,
+                }
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "items": True,
+                    "contains": True,
+                    "minContains": 0,
+                    "maxContains": 0,
+                }
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {"if": True, "then": False},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {"if": False, "else": False},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {"const": "detail", "items": False},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "unevaluatedItems": False,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "enum": ["detail", "summary"],
+                    "items": True,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "allOf": [
+                        {"if": True},
+                        {"type": "string"},
+                    ],
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "string",
+                    "if": {
+                        "properties": {"output_path": {}},
+                    },
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "contains": False,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "maxItems": 0,
+                    "items": {},
+                    "contains": {},
+                    "unevaluatedItems": {},
+                    "prefixItems": [{}],
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "string",
+                    "unevaluatedProperties": True,
+                    "properties": {
+                        "output_path": {},
+                    },
+                    "additionalProperties": True,
+                    "items": True,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                    "unevaluatedProperties": False,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "prefixItems": [False],
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                    "additionalProperties": False,
+                    "unevaluatedProperties": {},
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "allOf": [
+                        {"propertyNames": False},
+                        {"type": "object"},
+                    ],
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "maxProperties": 0,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 1,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "properties": {"detail": {"type": "string"}},
+            "additionalProperties": False,
+            "minItems": 2,
+            "maxItems": 1,
+        },
+        {
+            "properties": {"output_path": {}},
+            "additionalProperties": False,
+            "maxProperties": 0,
+            "minItems": 2,
+            "maxItems": 1,
+        },
+        {
+            "type": "array",
+            "contains": {},
+            "minContains": 2,
+            "maxContains": 1,
+            "unevaluatedItems": False,
+        },
+        {
+            "type": "object",
+            "properties": {"detail": {"type": "string"}},
+            "additionalProperties": False,
+            "if": {"type": "object", "maxProperties": 0},
+            "then": False,
+        },
+        {
+            "if": {"type": "object", "maxProperties": 0},
+            "then": False,
+            "else": {
+                "type": "object",
+                "properties": {"detail": {"type": "string"}},
+                "additionalProperties": False,
+            },
+        },
+        {
+            "if": {},
+            "then": False,
+        },
+        {
+            "type": "string",
+            "maxLength": 0,
+        },
+        {
+            "maxLength": 0,
+            "anyOf": [{"type": "string"}],
+        },
+        {
+            "if": {"type": "string"},
+            "then": {"type": "string"},
+            "else": {"type": "number"},
+        },
+        {
+            "type": "array",
+            "unevaluatedItems": {"type": "string"},
+        },
+        {
+            "type": "array",
+            "const": ["detail"],
+        },
+        {
+            "type": "array",
+            "enum": [["compact"], ["full"]],
+        },
+        {
+            "not": {},
+        },
+    ],
+)
+def test_policy_stage_requirements_respect_siblings_of_true_applicators(
+    bounded_schema: dict[str, Any],
+) -> None:
+    capability = replace(
+        TOOL_REGISTRY["get_tool_catalog"],
+        input_schema=bounded_schema,
     )
 
     assert policy_stage_requirements(capability)["managed_path_boundary"] is False
